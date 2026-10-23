@@ -1,0 +1,75 @@
+import type { RequestHandler } from "express";
+import jwt from "jsonwebtoken";
+import { env } from "../config/env.js";
+import { AppError } from "../utils/AppError.js";
+import { User, type Role, type UserDoc } from "../models/User.js";
+
+declare module "express-serve-static-core" {
+  interface Request {
+    user?: UserDoc;
+  }
+}
+
+export interface TokenPayload {
+  sub: string;
+  role: Role;
+}
+
+export function signToken(userId: string, role: Role) {
+  return jwt.sign({ sub: userId, role } satisfies TokenPayload, env.JWT_SECRET, {
+    expiresIn: `${env.JWT_EXPIRES_IN_DAYS}d`,
+  });
+}
+
+function readToken(req: Parameters<RequestHandler>[0]): string | undefined {
+  return req.cookies?.[env.COOKIE_NAME];
+}
+
+async function loadUser(req: Parameters<RequestHandler>[0]): Promise<UserDoc | null> {
+  const token = readToken(req);
+  if (!token) return null;
+  let payload: TokenPayload;
+  try {
+    payload = jwt.verify(token, env.JWT_SECRET) as TokenPayload;
+  } catch {
+    return null;
+  }
+  // Load from the DB on every request so a suspension or role change applies immediately.
+  const user = await User.findById(payload.sub);
+  if (!user || !user.isActive) return null;
+  return user;
+}
+
+/** Attaches req.user if a valid session exists. Never rejects. */
+export const optionalAuth: RequestHandler = async (req, _res, next) => {
+  try {
+    const user = await loadUser(req);
+    if (user) req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** Requires a valid session. */
+export const requireAuth: RequestHandler = async (req, _res, next) => {
+  try {
+    const user = await loadUser(req);
+    if (!user) return next(AppError.unauthenticated());
+    req.user = user;
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+/** Requires a valid session AND one of the given roles. Use on every non-public router. */
+export const requireRole = (...roles: Role[]): RequestHandler => {
+  return async (req, res, next) => {
+    await requireAuth(req, res, (err?: unknown) => {
+      if (err) return next(err);
+      if (!req.user || !roles.includes(req.user.role)) return next(AppError.forbidden());
+      next();
+    });
+  };
+};
