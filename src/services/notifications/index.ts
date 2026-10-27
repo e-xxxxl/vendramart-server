@@ -1,4 +1,4 @@
-import { EmailChannel, InAppChannel } from "./channels.js";
+import { InAppChannel, pickEmailChannel } from "./channels.js";
 import { NotificationService } from "./NotificationService.js";
 
 let override: NotificationService | undefined;
@@ -10,7 +10,7 @@ export function setNotifier(service: NotificationService | undefined) {
 }
 
 export function getNotifier(): NotificationService {
-  return override ?? (cached ??= new NotificationService([new InAppChannel(), new EmailChannel()]));
+  return override ?? (cached ??= new NotificationService([new InAppChannel(), pickEmailChannel()]));
 }
 
 export { NotificationService } from "./NotificationService.js";

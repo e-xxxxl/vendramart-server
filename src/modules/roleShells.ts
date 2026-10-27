@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireRole } from "../middleware/auth.js";
 import { ok } from "../utils/respond.js";
+import { adminBannersRouter } from "./banners/banners.routes.js";
 import { adminVendorsRouter } from "./vendors/adminVendors.routes.js";
 import { addressesRouter } from "./addresses/addresses.routes.js";
 import { adminDeliveriesRouter } from "./admin/adminDeliveries.routes.js";
@@ -20,6 +21,7 @@ adminRouter.use(requireRole("ADMIN"));
 adminRouter.get("/ping", (req, res) => ok(res, { area: "admin", userId: String(req.user!._id) }));
 adminRouter.use("/vendors", adminVendorsRouter);
 adminRouter.use("/staff", adminStaffRouter);
+adminRouter.use("/banners", adminBannersRouter);
 adminRouter.use("/payouts", adminPayoutsRouter);
 adminRouter.use(adminOverviewRouter);
 adminRouter.use(adminOrdersRouter);

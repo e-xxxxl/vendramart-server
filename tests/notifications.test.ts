@@ -77,7 +77,7 @@ describe("as the delivery moves along", () => {
     expect(await kindsFor(o.customer.user._id)).toEqual([]);
     expect(await kindsFor(o.admin.user._id)).toEqual([]); // not told about their own click
     const note = (await Notification.findOne({ userId: o.rider.user._id }))!;
-    expect(note.link).toBe(`/handler/${o.subId}`);
+    expect(note.link).toBe(`/handler/delivery/?id=${o.subId}`);
     // The handler is told where to collect and where to deliver (the fixture's pickup is "Somewhere, Ibadan").
     expect(note.body).toContain("Somewhere, Ibadan");
     expect(note.body).toContain("12 Awolowo Avenue");

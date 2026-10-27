@@ -3,6 +3,7 @@ import type { SubOrderDoc } from "../../models/SubOrder.js";
 import { User, type UserDoc } from "../../models/User.js";
 import { Vendor, type VendorDoc } from "../../models/Vendor.js";
 import { getNotifier, type NotificationMessage, type Recipient } from "../../services/notifications/index.js";
+import { deliveryPage, orderPage } from "../../utils/webLinks.js";
 
 export type SubOrderEvent = "READY_FOR_PICKUP" | "ASSIGNED" | "PICKED_UP" | "DELIVERED" | "FAILED_DELIVERY" | "CANCELLED";
 
@@ -46,7 +47,7 @@ export function notifyOrderPaid(order: OrderDoc, paidSubs: SubOrderDoc[]) {
         kind: "ORDER_PAID",
         title: "Payment received",
         body: `Order ${order.orderNumber} is confirmed. ${paidSubs.length === 1 ? "The vendor is" : `${paidSubs.length} vendors are`} getting your items ready.`,
-        link: `/orders/${order._id}`,
+        link: orderPage(order._id),
       });
     }
     for (const sub of paidSubs) {
@@ -77,13 +78,13 @@ export function notifySubOrderEvent(sub: SubOrderDoc, event: SubOrderEvent, opts
     const { customer, vendor, vendorUser, handler } = await parties(sub);
     const notSelf = (u: UserDoc | null): UserDoc[] => (u && String(u._id) !== opts.actorId ? [u] : []);
     const from = vendor?.businessName ?? "the vendor";
-    const orderLink = `/orders/${sub.orderId}`;
+    const orderLink = orderPage(sub.orderId);
 
     switch (event) {
       case "READY_FOR_PICKUP":
         await send(notSelf(customer), { kind: "READY_FOR_PICKUP", title: "Your items are ready", body: `${from} has packed ${sub.ref} and it is waiting for a rider.`, link: orderLink });
         if (handler) {
-          await send(notSelf(handler), { kind: "READY_FOR_PICKUP", title: `${sub.ref} is ready to collect`, body: `Pick up from ${from}: ${sub.delivery!.pickup!.line}.`, link: `/handler/${sub._id}` });
+          await send(notSelf(handler), { kind: "READY_FOR_PICKUP", title: `${sub.ref} is ready to collect`, body: `Pick up from ${from}: ${sub.delivery!.pickup!.line}.`, link: deliveryPage(sub._id) });
         } else {
           await send(await admins(), { kind: "READY_UNASSIGNED", title: `${sub.ref} is ready but has no handler`, body: `${from} has it packed. Assign a delivery handler.`, link: "/admin/deliveries" });
         }
@@ -94,7 +95,7 @@ export function notifySubOrderEvent(sub: SubOrderDoc, event: SubOrderEvent, opts
           kind: "DELIVERY_ASSIGNED",
           title: `New delivery ${sub.ref}`,
           body: `Collect from ${from} (${sub.delivery!.pickup!.line}) and deliver to ${sub.delivery!.dropoff!.line}.`,
-          link: `/handler/${sub._id}`,
+          link: deliveryPage(sub._id),
         });
         await send(notSelf(vendorUser), { kind: "HANDLER_ASSIGNED", title: `Rider assigned to ${sub.ref}`, body: "A delivery handler will collect this order when it is ready.", link: "/vendor/orders" });
         break;

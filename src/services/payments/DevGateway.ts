@@ -19,7 +19,7 @@ export class DevGateway implements PaymentGateway {
 
   async initialize({ email, amountKobo, reference }: InitializeInput) {
     this.transactions.set(reference, { reference, email, amountKobo, status: "pending" });
-    return { authorizationUrl: `${this.clientOrigin}/dev/paystack?reference=${encodeURIComponent(reference)}` };
+    return { authorizationUrl: `${this.clientOrigin}/dev/paystack/?reference=${encodeURIComponent(reference)}` };
   }
 
   async verify(reference: string): Promise<VerifyResult | null> {

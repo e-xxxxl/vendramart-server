@@ -10,7 +10,8 @@ let mongod: MongoMemoryServer | undefined;
 
 export default async function setup() {
   useCachedMongoBinary();
-  mongod = await MongoMemoryServer.create();
+  // A slow or busy machine can take longer than the default 10 seconds to start mongod.
+  mongod = await MongoMemoryServer.create({ instance: { launchTimeout: 60_000 } });
   // Worker processes are started after this and inherit the variable.
   process.env.TEST_MONGO_URI = mongod.getUri();
   return async () => {

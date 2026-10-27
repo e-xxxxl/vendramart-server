@@ -8,6 +8,7 @@ import { escapeRegex, objectId, pagination } from "../../utils/zodCommon.js";
 import { Product } from "../../models/Product.js";
 import { Vendor, VENDOR_STATUSES, type VendorDoc } from "../../models/Vendor.js";
 import { suspendSchema } from "./vendor.schemas.js";
+import { notifyVendorDecision } from "../accounts/accountEvents.js";
 
 // Mounted under /api/admin/vendors, so the ADMIN role check has already run.
 export const adminVendorsRouter = Router();
@@ -75,6 +76,7 @@ adminVendorsRouter.post(
     vendor.statusReason = undefined;
     vendor.approvedAt = vendor.approvedAt ?? new Date();
     await vendor.save();
+    void notifyVendorDecision(vendor, "APPROVED");
     ok(res, present(vendor));
   }),
 );
@@ -87,6 +89,7 @@ adminVendorsRouter.post(
     vendor.status = "SUSPENDED";
     vendor.statusReason = req.validated.body.reason;
     await vendor.save();
+    void notifyVendorDecision(vendor, "SUSPENDED");
     ok(res, present(vendor));
   }),
 );

@@ -32,6 +32,8 @@ export const asUser = (cookie: string) => ({
   get: (path: string) => api().get(`/api${path}`).set("Cookie", cookie),
   post: (path: string, body?: unknown) => api().post(`/api${path}`).set(XRW).set("Cookie", cookie).send((body ?? {}) as object),
   patch: (path: string, body?: unknown) => api().patch(`/api${path}`).set(XRW).set("Cookie", cookie).send((body ?? {}) as object),
+  put: (path: string, body?: unknown) => api().put(`/api${path}`).set(XRW).set("Cookie", cookie).send((body ?? {}) as object),
+  delete: (path: string) => api().delete(`/api${path}`).set(XRW).set("Cookie", cookie),
 });
 
 export async function createHandler(email = "rider@example.com") {

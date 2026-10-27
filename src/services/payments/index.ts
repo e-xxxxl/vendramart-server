@@ -1,4 +1,4 @@
-import { env, isProd } from "../../config/env.js";
+import { env, isProd, primaryClientOrigin } from "../../config/env.js";
 import { AppError } from "../../utils/AppError.js";
 import { DevGateway } from "./DevGateway.js";
 import type { PaymentGateway } from "./PaymentGateway.js";
@@ -24,7 +24,7 @@ export function setPaymentGateway(gateway: PaymentGateway | undefined, secret = 
 function build(): Built {
   if (env.PAYSTACK_SECRET_KEY) return { gateway: new PaystackGateway(env.PAYSTACK_SECRET_KEY), secret: env.PAYSTACK_SECRET_KEY };
   if (!isProd) {
-    const dev = new DevGateway(env.CLIENT_ORIGIN);
+    const dev = new DevGateway(primaryClientOrigin);
     return { gateway: dev, secret: DEV_WEBHOOK_SECRET, dev };
   }
   // Fail loudly rather than pretend to take payments.

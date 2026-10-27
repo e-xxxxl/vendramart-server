@@ -3,6 +3,7 @@ import type { PayoutDoc } from "../../models/Payout.js";
 import type { VendorDoc } from "../../models/Vendor.js";
 import { getNotifier, type NotificationMessage, type Recipient } from "../../services/notifications/index.js";
 import { formatNaira } from "../../utils/formatNaira.js";
+import { adminPayoutPage } from "../../utils/webLinks.js";
 
 const toRecipient = (u: UserDoc): Recipient => ({ id: String(u._id), name: u.name, email: u.email });
 const send = (to: UserDoc[], m: NotificationMessage) => (to.length ? getNotifier().notify(to.map(toRecipient), m) : Promise.resolve());
@@ -22,7 +23,7 @@ export const notifyPayoutRequested = (payout: PayoutDoc, vendor: VendorDoc) =>
       kind: "PAYOUT_REQUESTED",
       title: `Payout request ${payout.number}`,
       body: `${vendor.businessName} asked for ${formatNaira(payout.amountKobo)} across ${payout.subOrderIds.length} ${payout.subOrderIds.length === 1 ? "order" : "orders"}.`,
-      link: `/admin/payouts?id=${payout._id}`,
+      link: adminPayoutPage(payout._id),
     }),
   );
 

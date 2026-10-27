@@ -9,7 +9,8 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 const cached = path.join(os.homedir(), ".cache", "mongodb-binaries", "mongod-x64-win32-6.0.19.exe");
 if (!process.env.MONGOMS_SYSTEM_BINARY && fs.existsSync(cached)) process.env.MONGOMS_SYSTEM_BINARY = cached;
 
-const mongod = await MongoMemoryServer.create();
+// A slow machine (antivirus scanning mongod on its first start) can take longer than the default 10 seconds.
+const mongod = await MongoMemoryServer.create({ instance: { launchTimeout: 60_000 } });
 process.env.MONGODB_URI = mongod.getUri("vendramart_dev");
 process.env.JWT_SECRET ??= "dev-memory-secret-dev-memory-secret-0123456789";
 process.env.NODE_ENV ??= "development";

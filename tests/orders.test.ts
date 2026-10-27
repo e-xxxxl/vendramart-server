@@ -44,7 +44,7 @@ describe("POST /api/checkout (create order)", () => {
     const { data, order } = await placeOrder(customer, items);
     expect(fakeGateway.inits).toHaveLength(1);
     expect(fakeGateway.inits[0]).toMatchObject({ amountKobo: order.totalKobo, reference: data.reference, email: customer.email });
-    expect(fakeGateway.inits[0]!.callbackUrl).toBe(`http://localhost:3000/checkout/callback?reference=${encodeURIComponent(data.reference)}`);
+    expect(fakeGateway.inits[0]!.callbackUrl).toBe(`http://localhost:3000/checkout/callback/?reference=${encodeURIComponent(data.reference)}`);
     expect(Number.isInteger(fakeGateway.inits[0]!.amountKobo)).toBe(true);
   });
 

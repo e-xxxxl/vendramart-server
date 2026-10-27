@@ -299,7 +299,7 @@ describe("the development gateway (no Paystack key)", () => {
     setPaymentGateway(dev, DEV_WEBHOOK_SECRET);
     try {
       const { data, order, flour } = await pending();
-      expect(data.authorizationUrl).toBe(`http://localhost:3000/dev/paystack?reference=${encodeURIComponent(data.reference)}`);
+      expect(data.authorizationUrl).toBe(`http://localhost:3000/dev/paystack/?reference=${encodeURIComponent(data.reference)}`);
 
       const tx = await api().get(`/api/dev/paystack/transaction?reference=${data.reference}`);
       expect(tx.body.data).toMatchObject({ amountKobo: 3222000, status: "pending", orderNumber: "VM-10001" });

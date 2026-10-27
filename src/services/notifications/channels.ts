@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from "nodemailer";
-import { env, isTest } from "../../config/env.js";
+import { env, isTest, primaryClientOrigin } from "../../config/env.js";
 import { Notification } from "../../models/Notification.js";
+import { renderEmail } from "./emailTemplate.js";
 import type { NotificationChannel, NotificationMessage, Recipient } from "./NotificationService.js";
 
 /** Shows up in the bell inside the app. */
@@ -9,6 +10,15 @@ export class InAppChannel implements NotificationChannel {
   async send(to: Recipient, m: NotificationMessage) {
     await Notification.create({ userId: to.id, kind: m.kind, title: m.title, body: m.body, link: m.link });
   }
+}
+
+const DEFAULT_FROM = "VendraMart <no-reply@vendramart.test>";
+
+/** What every email channel sends for one notification: a subject, a branded HTML body and a plain-text copy. */
+function composeEmail(to: Recipient, m: NotificationMessage) {
+  const url = m.link ? `${primaryClientOrigin}${m.link}` : primaryClientOrigin;
+  const { html, text } = renderEmail({ name: to.name, title: m.title, body: m.body, url, origin: primaryClientOrigin });
+  return { subject: m.title, html, text };
 }
 
 /**
@@ -33,9 +43,52 @@ export class EmailChannel implements NotificationChannel {
   }
 
   async send(to: Recipient, m: NotificationMessage) {
-    const url = m.link ? `${env.CLIENT_ORIGIN}${m.link}` : env.CLIENT_ORIGIN;
-    const text = `Hi ${to.name.split(" ")[0]},\n\n${m.body}\n\nOpen VendraMart: ${url}\n\nVendraMart`;
-    await this.transport.sendMail({ from: env.EMAIL_FROM ?? "VendraMart <no-reply@vendramart.test>", to: to.email, subject: m.title, text });
-    if (!this.live && !isTest) console.log(`[email not sent, no SMTP configured] to ${to.email}: ${m.title}`);
+    await this.transport.sendMail({ from: env.EMAIL_FROM ?? DEFAULT_FROM, to: to.email, ...composeEmail(to, m) });
+    if (!this.live && !isTest) console.log(`[email not sent, no email service configured] to ${to.email}: ${m.title}`);
   }
+}
+
+type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
+
+/**
+ * Email through Resend (https://resend.com), used when RESEND_API_KEY is set. It talks to Resend's web address directly
+ * rather than through an extra package. The sender (EMAIL_FROM) must be on a domain verified in your Resend account.
+ */
+export class ResendChannel implements NotificationChannel {
+  readonly name = "email";
+
+  constructor(
+    private apiKey: string,
+    private from: string = DEFAULT_FROM,
+    private fetchImpl: FetchLike = fetch,
+    private timeoutMs = 10_000,
+  ) {}
+
+  async send(to: Recipient, m: NotificationMessage) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let res: Response;
+    try {
+      res = await this.fetchImpl("https://api.resend.com/emails", {
+        method: "POST",
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from: this.from, to: [to.email], ...composeEmail(to, m) }),
+      });
+    } catch {
+      throw new Error("Resend could not be reached");
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) {
+      // Resend explains what is wrong (for example an unverified sender domain). That goes to the log, never to a shopper.
+      const reason = ((await res.json().catch(() => null)) as { message?: string } | null)?.message;
+      throw new Error(`Resend refused the email (${res.status}${reason ? `: ${String(reason).slice(0, 160)}` : ""})`);
+    }
+  }
+}
+
+/** Resend when it has a key, otherwise SMTP, otherwise the console. */
+export function pickEmailChannel(opts: { resendKey?: string; from?: string } = { resendKey: env.RESEND_API_KEY, from: env.EMAIL_FROM }): NotificationChannel {
+  return opts.resendKey ? new ResendChannel(opts.resendKey, opts.from ?? DEFAULT_FROM) : new EmailChannel();
 }
