@@ -107,7 +107,7 @@ export function notifySubOrderEvent(sub: SubOrderDoc, event: SubOrderEvent, opts
 
       case "DELIVERED":
         await send(notSelf(customer), { kind: "DELIVERED", title: "Delivered", body: `${sub.ref} from ${from} has been delivered. Enjoy!`, link: orderLink });
-        await send(notSelf(vendorUser), { kind: "DELIVERED", title: `${sub.ref} delivered`, body: "Your earnings for this order unlock 24 hours after delivery.", link: "/vendor/earnings" });
+        await send(notSelf(vendorUser), { kind: "DELIVERED", title: `${sub.ref} delivered`, body: "Your earnings for this order unlock 4 working days after delivery.", link: "/vendor/earnings" });
         break;
 
       case "FAILED_DELIVERY":

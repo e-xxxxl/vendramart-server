@@ -13,11 +13,12 @@ import { SubOrder } from "../models/SubOrder.js";
 import { User } from "../models/User.js";
 import { Vendor } from "../models/Vendor.js";
 import { ORDER_NUMBER_START, subOrderLetter } from "../modules/orders/orders.service.js";
+import { holdEndsAt } from "../domain/earnings.js";
 import { DEMO_EMAIL_DOMAIN } from "./demo.js";
 import { slugify } from "./reference.js";
 
 // Realistic past orders for the demo customer, so a fresh database shows a working marketplace: earnings that
-// are available to withdraw, some on the 24-hour hold, a delivery in progress and one waiting for a handler.
+// are available to withdraw, some on the hold (4 working days after delivery), a delivery in progress and one waiting for a handler.
 // Money comes from the same pure functions real orders use. Runs once: if the customer already has orders it does nothing.
 
 const HOUR = 3_600_000;
@@ -36,12 +37,13 @@ interface Plan {
 }
 
 const PLANS: Plan[] = [
-  { hoursAgo: 150, lines: [["Omosalewa Bean Flour", 2], ["Garri Ijebu, white bag", 1]], status: ["COMPLETED"], handler: true },
-  { hoursAgo: 126, lines: [["Adire Fabric, 6 yards", 1], ["Kente Beads, set of 6", 1]], status: ["COMPLETED"], handler: true },
-  { hoursAgo: 100, lines: [["Banga Palm Oil, 4L", 1], ["Adire Tote Bag", 1]], status: ["COMPLETED", "COMPLETED"], handler: true },
-  { hoursAgo: 76, lines: [["Fresh tomatoes, basket", 2], ["Yam tuber", 3]], status: ["COMPLETED"], handler: true },
-  { hoursAgo: 52, lines: [["Kente Wrap Dress", 1]], status: ["COMPLETED"], handler: true },
-  // Delivered about 18 hours ago, so the earnings are still on the 24-hour hold.
+  { hoursAgo: 100, lines: [["Omosalewa Bean Flour", 2], ["Garri Ijebu, white bag", 1]], status: ["COMPLETED"], handler: true },
+  { hoursAgo: 95, lines: [["Adire Fabric, 6 yards", 1], ["Kente Beads, set of 6", 1]], status: ["COMPLETED"], handler: true },
+  { hoursAgo: 90, lines: [["Banga Palm Oil, 4L", 1], ["Adire Tote Bag", 1]], status: ["COMPLETED", "COMPLETED"], handler: true },
+  { hoursAgo: 85, lines: [["Fresh tomatoes, basket", 2], ["Yam tuber", 3]], status: ["COMPLETED"], handler: true },
+  { hoursAgo: 80, lines: [["Kente Wrap Dress", 1]], status: ["COMPLETED"], handler: true },
+  // The first five are finished (their start is moved back until the hold has passed), so they are complete and their money is
+  // available. This one was delivered about 18 hours ago, so its earnings are still on hold.
   { hoursAgo: 20, lines: [["Extra virgin olive oil, 1L", 1], ["Tie-Dye T-Shirt, free size", 2]], status: ["DELIVERED", "DELIVERED"], handler: true },
   { hoursAgo: 6, lines: [["Oloyin (Honey) Beans", 2], ["Waist Beads, set of 3", 2]], status: ["PICKED_UP", "READY_FOR_PICKUP"], handler: true },
   { hoursAgo: 3, lines: [["King's Vegetable Oil, 5L", 1]], status: ["PAID"], handler: false },
@@ -79,7 +81,10 @@ export async function seedDemoOrders(now = new Date()): Promise<number> {
       leg.lines.push({ name, qty, unit: p.priceKobo, productId: p._id, image: p.images[0]?.url });
     });
 
-    const paidAt = new Date(now.getTime() - plan.hoursAgo * HOUR);
+    let paidAt = new Date(now.getTime() - plan.hoursAgo * HOUR);
+    // A finished order must be old enough for its hold to have ended (4 working days after delivery, which is 2 hours
+    // after payment here), and how long that takes depends on the day of the week, so step back until it has.
+    if (plan.status.includes("COMPLETED")) while (holdEndsAt(new Date(paidAt.getTime() + 2 * HOUR)) > now) paidAt = new Date(paidAt.getTime() - HOUR);
     const orderNumber = `VM-${await nextSeq("order", ORDER_NUMBER_START)}`;
 
     const built = legs.map((leg, index) => {
@@ -110,14 +115,14 @@ export async function seedDemoOrders(now = new Date()): Promise<number> {
     for (const b of built) {
       const final = plan.status[b.index] ?? plan.status[0]!;
       const reached = CHAIN.slice(0, CHAIN.indexOf(final) + 1);
-      // Each step happens a little after the one before it. COMPLETED is exactly 24 hours after delivery.
+      // Each step happens a little after the one before it. COMPLETED is exactly when the hold ends.
       const at: Partial<Record<OrderStatus, Date>> = {
         PAID: paidAt,
         READY_FOR_PICKUP: new Date(paidAt.getTime() + 0.4 * HOUR),
         PICKED_UP: new Date(paidAt.getTime() + 0.9 * HOUR),
         DELIVERED: new Date(paidAt.getTime() + 2 * HOUR),
       };
-      at.COMPLETED = new Date(at.DELIVERED!.getTime() + 24 * HOUR);
+      at.COMPLETED = holdEndsAt(at.DELIVERED!);
 
       const sub = await SubOrder.create({
         orderId: order._id,

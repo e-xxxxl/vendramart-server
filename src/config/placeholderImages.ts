@@ -11,6 +11,7 @@ export const unsplashUrl = (photoId: string, width = 700) => `https://images.uns
 /** Photo ids, named by what is in the picture. */
 export const PHOTO = {
   flourShelf: "1761222191837-4448599c09fc",
+  grainMarket: "1565958923272-e96dbb1e8414", // wooden bowls of grains and beans in a West African open-air market
   flourSack: "1760727466909-a73872aeecda",
   flourBag: "1766387930184-5d9b2cf6d7a5",
   oilBottles: "1720468750623-39e9a09f5067",
@@ -41,7 +42,7 @@ export const PHOTO = {
 
 /** Tile photo for each category. */
 const CATEGORY_TILE: Record<string, string> = {
-  "grains-and-flour": PHOTO.flourShelf,
+  "grains-and-flour": PHOTO.grainMarket,
   "oils-and-condiments": PHOTO.oilBottles,
   "tubers-and-produce": PHOTO.yams,
   "beans-and-legumes": PHOTO.beansMixed,

@@ -42,7 +42,7 @@ async function releaseOrphanLocks(vendorId: Types.ObjectId): Promise<void> {
 
 /**
  * The vendor asks for everything that is available right now. In one go it: locks the vendor, claims every
- * unlocked, delivered, 24-hour-cleared sub-order for this payout with a single atomic update, adds up what it
+ * unlocked, delivered, hold-cleared sub-order for this payout with a single atomic update, adds up what it
  * actually claimed, and creates the payout. Held, undelivered and already-requested orders are never included.
  */
 export async function requestPayout(vendor: VendorDoc, user: UserDoc, now = new Date()): Promise<PayoutDoc> {
@@ -51,7 +51,7 @@ export async function requestPayout(vendor: VendorDoc, user: UserDoc, now = new 
     await releaseOrphanLocks(vendor._id);
     const payoutId = new Types.ObjectId();
     const claim = await SubOrder.updateMany(availableFilter(vendor._id, now, await declinedPayoutIds(vendor._id)), { $set: { payoutId, payoutLockedAt: now } });
-    if (claim.modifiedCount === 0) throw AppError.conflict("You have no earnings available to withdraw yet. Earnings unlock 24 hours after delivery.");
+    if (claim.modifiedCount === 0) throw AppError.conflict("You have no earnings available to withdraw yet. Earnings unlock 4 working days after delivery.");
 
     try {
       const claimed = await SubOrder.find({ payoutId });

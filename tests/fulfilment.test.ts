@@ -466,16 +466,16 @@ describe("staff accounts", () => {
   });
 });
 
-describe("completing delivered orders after the 24-hour hold", () => {
-  async function deliveredAt(hoursAgo: number) {
+describe("completing delivered orders after the hold (4 working days)", () => {
+  async function deliveredAt(daysAgo: number) {
     const o = await paidOrder();
-    const when = new Date(Date.now() - hoursAgo * 3600_000);
+    const when = new Date(Date.now() - daysAgo * 86_400_000);
     await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt: when });
     return { ...o, when };
   }
 
-  it("completes an order delivered more than 24 hours ago, and logs it as the system", async () => {
-    const o = await deliveredAt(25);
+  it("completes an order delivered long ago, and logs it as the system", async () => {
+    const o = await deliveredAt(10);
     expect(await completeDeliveredOrders()).toBe(1);
     const sub = await reload(o.bodijaSub);
     expect(sub.status).toBe("COMPLETED");
@@ -483,24 +483,24 @@ describe("completing delivered orders after the 24-hour hold", () => {
     expect(await StatusLog.findOne({ subOrderId: o.bodijaSub._id, to: "COMPLETED" })).toMatchObject({ from: "DELIVERED", actorRole: "SYSTEM" });
   });
 
-  it("leaves an order delivered 23 hours 59 minutes ago alone", async () => {
+  it("leaves an order delivered a day ago alone, and one delivered the minute before the hold ends", async () => {
     const o = await paidOrder();
-    const deliveredAt = new Date("2026-10-16T10:00:00.000Z");
-    await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt });
-    expect(await completeDeliveredOrders(new Date("2026-10-17T09:59:59.999Z"))).toBe(0);
+    // Delivered Thursday 15 Oct 2026; the hold ends Wednesday 21 Oct at the same time.
+    await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt: new Date("2026-10-15T10:00:00.000Z") });
+    expect(await completeDeliveredOrders(new Date("2026-10-16T10:00:00.000Z"))).toBe(0);
+    expect(await completeDeliveredOrders(new Date("2026-10-21T09:59:59.999Z"))).toBe(0);
     expect((await reload(o.bodijaSub)).status).toBe("DELIVERED");
   });
 
-  it("completes at exactly 24 hours after delivery", async () => {
+  it("completes at exactly the moment the hold ends", async () => {
     const o = await paidOrder();
-    const deliveredAt = new Date("2026-10-16T10:00:00.000Z");
-    await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt });
-    expect(await completeDeliveredOrders(new Date("2026-10-17T10:00:00.000Z"))).toBe(1);
+    await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt: new Date("2026-10-15T10:00:00.000Z") });
+    expect(await completeDeliveredOrders(new Date("2026-10-21T10:00:00.000Z"))).toBe(1);
     expect((await reload(o.bodijaSub)).status).toBe("COMPLETED");
   });
 
   it("only touches delivered orders, and is safe to run again and again", async () => {
-    const o = await deliveredAt(30);
+    const o = await deliveredAt(12);
     await SubOrder.updateOne({ _id: o.ojabaSub._id }, { status: "PICKED_UP" });
     expect(await completeDeliveredOrders()).toBe(1);
     expect(await completeDeliveredOrders()).toBe(0);
@@ -510,7 +510,7 @@ describe("completing delivered orders after the 24-hour hold", () => {
   });
 
   it("does not complete anything when two sweeps overlap more than once", async () => {
-    const o = await deliveredAt(40);
+    const o = await deliveredAt(14);
     const counts = await Promise.all([completeDeliveredOrders(), completeDeliveredOrders(), completeDeliveredOrders()]);
     expect(counts.reduce((a, b) => a + b, 0)).toBe(1);
     expect(await StatusLog.countDocuments({ subOrderId: o.bodijaSub._id, to: "COMPLETED" })).toBe(1);

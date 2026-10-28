@@ -5,6 +5,7 @@ import { SubOrder } from "../src/models/SubOrder.js";
 import { User } from "../src/models/User.js";
 import { ensureAdmin } from "../src/seed/admin.js";
 import { DEMO_EMAIL_DOMAIN, seedDemoData } from "../src/seed/demo.js";
+import { holdEndsAt } from "../src/domain/earnings.js";
 import { seedDemoOrders } from "../src/seed/demoOrders.js";
 import { api, clearDb, loginCookie, seedReferenceData, startDb, stopDb } from "./helpers.js";
 import { asUser } from "./fulfilmentHelpers.js";
@@ -69,11 +70,11 @@ describe("the starting data set", () => {
     }
   });
 
-  it("completes a delivery exactly 24 hours after it was delivered", async () => {
+  it("completes a delivery exactly when its hold (4 working days) ends", async () => {
     await seedAll();
     const done = await SubOrder.find({ status: "COMPLETED" });
     expect(done.length).toBeGreaterThan(0);
-    for (const s of done) expect(s.completedAt!.getTime() - s.deliveredAt!.getTime()).toBe(24 * HOUR);
+    for (const s of done) expect(s.completedAt!.getTime()).toBe(holdEndsAt(s.deliveredAt!).getTime());
     for (const s of await SubOrder.find({ status: "DELIVERED" })) expect(Date.now() - s.deliveredAt!.getTime()).toBeLessThan(24 * HOUR);
   });
 
@@ -100,7 +101,7 @@ describe("the starting data set", () => {
     expect(o.deliveries.needsHandler).toBe(1);
     expect(o.deliveries.inProgress).toBeGreaterThanOrEqual(3);
     expect(o.vendors.approved).toBe(2);
-    expect(o.last7Days.reduce((n: number, d: { orders: number }) => n + d.orders, 0)).toBe(9);
+    expect(o.last7Days.reduce((n: number, d: { orders: number }) => n + d.orders, 0)).toBeGreaterThanOrEqual(8); // a finished order can be just over 6 days old, near the edge of the window
   });
 
   it("shows the seeded orders to the customer, with the handler only on the deliveries assigned to them", async () => {

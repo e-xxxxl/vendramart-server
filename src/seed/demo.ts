@@ -86,12 +86,12 @@ export interface DemoResult {
 
 const BANNERS: { placement: "HERO" | "SIDE" | "STRIP"; title: string; subtitle?: string; ctaLabel: string; link: string; photo: string; width: number }[] = [
   { placement: "HERO", title: "Fresh from Ibadan's markets, at your door", subtitle: "Yam, beans, flour and oil from local vendors, in one cart", ctaLabel: "Shop now", link: "/search/", photo: PHOTO.marketWoman, width: 1600 },
-  { placement: "HERO", title: "Kitchen staples, delivered", subtitle: "Stock up on grains, flour and cooking oil", ctaLabel: "Shop staples", link: "/category/?slug=grains-and-flour", photo: PHOTO.flourShelf, width: 1600 },
+  { placement: "HERO", title: "Kitchen staples, delivered", subtitle: "Stock up on grains, flour and cooking oil", ctaLabel: "Shop staples", link: "/category/?slug=grains-and-flour", photo: PHOTO.grainMarket, width: 1600 },
   { placement: "HERO", title: "Made in Nigeria", subtitle: "Adire, tie-dye and handmade beads from Ibadan makers", ctaLabel: "Explore fashion", link: "/category/?slug=fashion", photo: PHOTO.kenteDress, width: 1600 },
-  { placement: "HERO", title: "Sell on VendraMart", subtitle: "We handle checkout and delivery. You get paid 24 hours after delivery", ctaLabel: "Become a vendor", link: "/vendor/register/", photo: PHOTO.marketFruit, width: 1600 },
+  { placement: "HERO", title: "Sell on VendraMart", subtitle: "We handle checkout and delivery. You get paid 4 working days after delivery", ctaLabel: "Become a vendor", link: "/vendor/register/", photo: PHOTO.marketFruit, width: 1600 },
   { placement: "SIDE", title: "Tubers and produce", subtitle: "Yam, cassava, sweet potato", ctaLabel: "Shop", link: "/category/?slug=tubers-and-produce", photo: PHOTO.yams, width: 900 },
   { placement: "SIDE", title: "Fashion", subtitle: "Prints and ready-to-wear", ctaLabel: "Shop", link: "/category/?slug=fashion", photo: PHOTO.tieDyeShirt, width: 900 },
-  { placement: "STRIP", title: "Kitchen staples", ctaLabel: "Shop now", link: "/category/?slug=grains-and-flour", photo: PHOTO.flourShelf, width: 1000 },
+  { placement: "STRIP", title: "Kitchen staples", ctaLabel: "Shop now", link: "/category/?slug=grains-and-flour", photo: PHOTO.grainMarket, width: 1000 },
   { placement: "STRIP", title: "Fresh produce", ctaLabel: "Shop now", link: "/category/?slug=tubers-and-produce", photo: PHOTO.marketTomatoes, width: 1000 },
   { placement: "STRIP", title: "Beads and accessories", ctaLabel: "Shop now", link: "/category/?slug=accessories", photo: PHOTO.beadsHand, width: 1000 },
 ];

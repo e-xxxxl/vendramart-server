@@ -30,8 +30,8 @@ async function main() {
   const sweep = () =>
     Promise.all([
       expireStaleOrders().then((n) => n > 0 && console.log(`Expired ${n} unpaid order(s) and returned their stock`)),
-      // Delivered orders become COMPLETED once their 24-hour hold has passed.
-      completeDeliveredOrders().then((n) => n > 0 && console.log(`Completed ${n} delivered order(s) after the 24-hour hold`)),
+      // Delivered orders become COMPLETED once their earnings hold has passed.
+      completeDeliveredOrders().then((n) => n > 0 && console.log(`Completed ${n} delivered order(s) after the earnings hold`)),
     ]).catch((err) => console.error("Order sweep failed:", err));
   setInterval(sweep, 60_000).unref();
 }

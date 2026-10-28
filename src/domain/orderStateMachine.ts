@@ -13,7 +13,7 @@ export const ORDER_STATUSES = [
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
-/** SYSTEM is the platform itself: the payment webhook, the expiry sweeper, the 24-hour completion. */
+/** SYSTEM is the platform itself: the payment webhook, the expiry sweeper, the completion after the hold. */
 export type Actor = "SYSTEM" | "CUSTOMER" | "VENDOR" | "ADMIN" | "HANDLER";
 
 interface Rule {
@@ -33,7 +33,7 @@ const RULES: Rule[] = [
   { from: "PICKED_UP", to: "FAILED_DELIVERY", actors: ["HANDLER"] },
   { from: "FAILED_DELIVERY", to: "PICKED_UP", actors: ["ADMIN"] }, // retry the delivery
   { from: "FAILED_DELIVERY", to: "CANCELLED", actors: ["ADMIN"] },
-  { from: "DELIVERED", to: "COMPLETED", actors: ["SYSTEM"] }, // 24 hours after deliveredAt
+  { from: "DELIVERED", to: "COMPLETED", actors: ["SYSTEM"] }, // when the hold after deliveredAt ends
 ];
 
 export const TERMINAL: OrderStatus[] = ["COMPLETED", "CANCELLED"];

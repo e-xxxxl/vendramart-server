@@ -1,5 +1,6 @@
 import { Types } from "mongoose";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { unlockedBefore } from "../src/domain/earnings.js";
 import { Notification } from "../src/models/Notification.js";
 import { Payout } from "../src/models/Payout.js";
 import { SubOrder, type SubOrderDoc } from "../src/models/SubOrder.js";
@@ -57,9 +58,9 @@ async function addSub(base: SubOrderDoc, over: { earnKobo: number; status: SubOr
 /** Marks the order paidOrder() made for Bodija delivered, then adds the other earnings of the vendor screen. */
 async function screenScenario() {
   const o = await paidOrder();
-  await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt: hoursAgo(30), vendorEarningKobo: 2_000_000 });
-  await addSub(o.bodijaSub, { earnKobo: 1_000_000, status: "COMPLETED", deliveredAt: hoursAgo(60) });
-  await addSub(o.bodijaSub, { earnKobo: 1_374_000, status: "COMPLETED", deliveredAt: hoursAgo(90) });
+  await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt: hoursAgo(24 * 8), vendorEarningKobo: 2_000_000 });
+  await addSub(o.bodijaSub, { earnKobo: 1_000_000, status: "COMPLETED", deliveredAt: hoursAgo(24 * 9) });
+  await addSub(o.bodijaSub, { earnKobo: 1_374_000, status: "COMPLETED", deliveredAt: hoursAgo(24 * 10) });
   await addSub(o.bodijaSub, { earnKobo: 2_700_000, status: "DELIVERED", deliveredAt: hoursAgo(2) }); // still held
   await addSub(o.bodijaSub, { earnKobo: 1_665_000, status: "PICKED_UP" }); // not delivered yet
   const admin = await createAdmin();
@@ -87,20 +88,20 @@ describe("vendor earnings summary", () => {
       requestedKobo: 0,
       paidKobo: 0,
     });
-    expect(new Date(res.body.data.summary.nextUnlockAt).getTime()).toBeGreaterThan(Date.now() + 21 * HOUR);
+    expect(new Date(res.body.data.summary.nextUnlockAt).getTime()).toBeGreaterThan(Date.now() + 3 * 24 * HOUR);
     expect(res.body.data.bank).toMatchObject({ bankName: "GTBank", accountMasked: expect.stringMatching(/6789$/) });
     expect(JSON.stringify(res.body)).not.toContain("0123456789");
   });
 
-  it("holds a DELIVERED order until exactly 24 hours after delivery, with no job having run", async () => {
+  it("holds a DELIVERED order until exactly 4 working days after delivery, with no job having run", async () => {
     const o = await paidOrder();
     const base = Date.now();
-    await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt: new Date(base - 24 * HOUR + 60_000) });
+    await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt: new Date(unlockedBefore(new Date(base)).getTime() + 60_000) });
     const summary = async () => (await asUser(o.vendorCookies.bodija).get("/vendor/earnings")).body.data.summary;
     const held = await summary();
     expect(held.availableKobo).toBe(0);
     expect(held.onHoldKobo).toBe(o.bodijaSub.vendorEarningKobo);
-    await SubOrder.updateOne({ _id: o.bodijaSub._id }, { deliveredAt: new Date(base - 24 * HOUR - 1000) });
+    await SubOrder.updateOne({ _id: o.bodijaSub._id }, { deliveredAt: new Date(unlockedBefore(new Date(base)).getTime() - 1000) });
     const released = await summary();
     expect(released.availableKobo).toBe(o.bodijaSub.vendorEarningKobo);
     expect(released.onHoldKobo).toBe(0);
@@ -180,7 +181,7 @@ describe("requesting a payout", () => {
 
   it("frees orders locked to a payout that was never created", async () => {
     const o = await screenScenario();
-    await SubOrder.updateMany({ vendorId: o.bodija.vendor._id, status: { $in: ["DELIVERED", "COMPLETED"] }, deliveredAt: { $lte: hoursAgo(24) } }, { payoutId: new Types.ObjectId() });
+    await SubOrder.updateMany({ vendorId: o.bodija.vendor._id, status: { $in: ["DELIVERED", "COMPLETED"] }, deliveredAt: { $lte: unlockedBefore(new Date()) } }, { payoutId: new Types.ObjectId() });
     const res = await o.vendor.post("/vendor/payouts");
     expect(res.status).toBe(201);
     expect(res.body.data.amountKobo).toBe(4_374_000);
@@ -354,7 +355,7 @@ describe("available means the same thing everywhere", () => {
   it("the withdrawal query and the earnings page agree for every status and delivery time", async () => {
     const o = await paidOrder();
     const now = new Date();
-    const times = [undefined, hoursAgo(1), new Date(now.getTime() - 24 * HOUR + 1), new Date(now.getTime() - 24 * HOUR), hoursAgo(25), hoursAgo(500)];
+    const times = [undefined, hoursAgo(1), new Date(unlockedBefore(now).getTime() + 1), unlockedBefore(now), hoursAgo(25), hoursAgo(500)];
     for (const status of ["PAID", "READY_FOR_PICKUP", "PICKED_UP", "FAILED_DELIVERY", "DELIVERED", "COMPLETED"] as const) {
       for (const deliveredAt of times) await addSub(o.bodijaSub, { earnKobo: 1000, status, deliveredAt });
     }

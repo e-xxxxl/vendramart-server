@@ -101,7 +101,7 @@ describe("as the delivery moves along", () => {
     expect(await kindsFor(o.customer.user._id)).toEqual(["READY_FOR_PICKUP"]);
   });
 
-  it("pickup and delivery tell both the customer and the vendor, and delivery mentions the 24-hour hold", async () => {
+  it("pickup and delivery tell both the customer and the vendor, and delivery mentions the 4 working day hold", async () => {
     const o = await flow();
     await o.a.post(`/admin/sub-orders/${o.subId}/assign`, { handlerId: String(o.rider.user._id) });
     await o.v.post(`/vendor/orders/${o.subId}/ready`);
@@ -115,7 +115,7 @@ describe("as the delivery moves along", () => {
     await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "DELIVERED" });
     expect(await kindsFor(o.customer.user._id)).toEqual(["PICKED_UP", "DELIVERED"]);
     const vendorNote = (await Notification.findOne({ userId: o.bodija.user._id, kind: "DELIVERED" }))!;
-    expect(vendorNote.body).toMatch(/24 hours after delivery/);
+    expect(vendorNote.body).toMatch(/4 working days after delivery/);
     expect(vendorNote.link).toBe("/vendor/earnings");
     // Both of them also got the email.
     expect(emailLog.to(o.customer.email).map((m) => m.title)).toContain("Delivered");

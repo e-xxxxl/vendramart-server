@@ -1,5 +1,5 @@
 import type { Types } from "mongoose";
-import { holdHasEnded } from "../../domain/earnings.js";
+import { holdHasEnded, unlockedBefore } from "../../domain/earnings.js";
 import { assertTransition, TransitionError, type Actor, type OrderStatus } from "../../domain/orderStateMachine.js";
 import { Order } from "../../models/Order.js";
 import { StatusLog } from "../../models/StatusLog.js";
@@ -92,17 +92,17 @@ export async function transitionSubOrder(subOrderId: unknown, to: OrderStatus, a
 }
 
 /**
- * Delivered orders become COMPLETED once the 24-hour hold has passed (the same moment vendor earnings
+ * Delivered orders become COMPLETED once the 4 working day hold has passed (the same moment vendor earnings
  * unlock). Called by the sweeper; safe to run any number of times.
  */
 export async function completeDeliveredOrders(now = new Date()): Promise<number> {
-  const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const cutoff = unlockedBefore(now);
   const due = await SubOrder.find({ status: "DELIVERED", deliveredAt: { $lte: cutoff } }).limit(200);
   let done = 0;
   for (const sub of due) {
     if (!sub.deliveredAt || !holdHasEnded(sub.deliveredAt, now)) continue;
     try {
-      await transitionSubOrder(sub._id, "COMPLETED", { role: "SYSTEM" }, { now, note: "24-hour hold passed" });
+      await transitionSubOrder(sub._id, "COMPLETED", { role: "SYSTEM" }, { now, note: "Hold passed (4 working days after delivery)" });
       done++;
     } catch (err) {
       // Someone else completed or changed it first; nothing to do.

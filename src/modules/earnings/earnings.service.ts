@@ -16,7 +16,7 @@ export async function declinedPayoutIds(vendorId: Types.ObjectId): Promise<Types
 }
 
 /**
- * THE definition of "available to withdraw", as a database filter: delivered, 24 hours passed, and not locked in a
+ * THE definition of "available to withdraw", as a database filter: delivered, the 4 working day hold passed, and not locked in a
  * live payout. Both the payout request and the earnings page use it. It is the query form of
  * `earningState(...) === "AVAILABLE"` (a test keeps the two identical), and it looks only at timestamps and the
  * payout link: no job has to have run.
@@ -42,7 +42,6 @@ export interface EarningRow {
   earnKobo: number;
   state: EarningState;
   unlocksAt: Date | null;
-  hoursLeft: number | null;
 }
 
 export interface EarningsSummary {
@@ -109,7 +108,6 @@ export function toRows(subs: SubOrderDoc[], results: Map<string, EarningResult>)
       earnKobo: i.vendorEarningKobo,
       state: r.state,
       unlocksAt: r.unlocksAt ?? null,
-      hoursLeft: r.hoursLeft ?? null,
     }));
   });
 }

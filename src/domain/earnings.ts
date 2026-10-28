@@ -1,26 +1,64 @@
 import type { OrderStatus } from "./orderStateMachine.js";
 
-// The 24-hour hold on vendor earnings and the earning states built on it. Everything is derived from
-// timestamps and the payout link, so nothing depends on a scheduled job having run: a vendor's money becomes
-// "available" the instant deliveredAt + 24h passes, whether or not the order has been marked COMPLETED yet.
+// The hold on vendor earnings and the earning states built on it. Earnings unlock 4 working days after delivery.
+// Everything is derived from timestamps and the payout link, so nothing depends on a scheduled job having run: a
+// vendor's money becomes "available" the instant the hold ends, whether or not the order has been marked COMPLETED yet.
+//
+// Working days are Monday to Friday in Lagos time (UTC+1, no daylight saving). Public holidays are not excluded.
+// A delivery on a Saturday or Sunday counts as the start of Monday, so a later delivery never unlocks before an
+// earlier one (which is what lets the database ask "what has unlocked by now?" with a single timestamp).
 
-export const HOLD_HOURS = 24;
-export const HOLD_MS = HOLD_HOURS * 60 * 60 * 1000;
+export const HOLD_WORKING_DAYS = 4;
 
-/** The exact moment earnings unlock: deliveredAt plus 24 hours. */
-export const holdEndsAt = (deliveredAt: Date): Date => new Date(deliveredAt.getTime() + HOLD_MS);
+const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
+const LAGOS_OFFSET_MS = HOUR_MS;
 
-/** True once the hold has fully passed. At exactly deliveredAt + 24h it is true. */
+/** The same instant shifted so that reading it as UTC gives the wall clock in Lagos. */
+const toLagosClock = (d: Date) => d.getTime() + LAGOS_OFFSET_MS;
+const isWeekend = (lagosClockMs: number) => {
+  const day = new Date(lagosClockMs).getUTCDay();
+  return day === 0 || day === 6;
+};
+
+/** The exact moment earnings unlock: deliveredAt plus 4 working days, at the same time of day. */
+export function holdEndsAt(deliveredAt: Date): Date {
+  let t = toLagosClock(deliveredAt);
+  const startOfDay = t - (((t % DAY_MS) + DAY_MS) % DAY_MS);
+  const weekday = new Date(t).getUTCDay();
+  if (weekday === 6) t = startOfDay + 2 * DAY_MS; // Saturday: counts as Monday 00:00
+  else if (weekday === 0) t = startOfDay + DAY_MS; // Sunday: counts as Monday 00:00
+  for (let i = 0; i < HOLD_WORKING_DAYS; i++) {
+    t += DAY_MS;
+    while (isWeekend(t)) t += DAY_MS;
+  }
+  return new Date(t - LAGOS_OFFSET_MS);
+}
+
+/** True once the hold has fully passed. At exactly the unlock moment it is true. */
 export const holdHasEnded = (deliveredAt: Date, now: Date): boolean => now.getTime() >= holdEndsAt(deliveredAt).getTime();
 
-/** The latest `deliveredAt` that has already cleared the hold at `now`. A delivery at or before this is unlocked. */
-export const unlockedBefore = (now: Date): Date => new Date(now.getTime() - HOLD_MS);
+/**
+ * The latest `deliveredAt` that has already cleared the hold at `now`: a delivery at or before this is unlocked.
+ * holdEndsAt only ever moves forward as the delivery time does, so this is found by halving a search range (a hold
+ * is never longer than a week), to the exact millisecond.
+ */
+export function unlockedBefore(now: Date): Date {
+  let lo = now.getTime() - 8 * DAY_MS; // certainly unlocked
+  let hi = now.getTime(); // certainly not: the hold always ends after the delivery
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (holdEndsAt(new Date(mid)).getTime() <= now.getTime()) lo = mid;
+    else hi = mid;
+  }
+  return new Date(lo);
+}
 
 export const EARNING_STATES = ["NONE", "AWAITING_DELIVERY", "ON_HOLD", "AVAILABLE", "REQUESTED", "PAID"] as const;
 /**
  * NONE               nothing is owed (unpaid or cancelled order)
  * AWAITING_DELIVERY  paid by the customer but not delivered yet (includes a failed delivery that may be retried)
- * ON_HOLD            delivered, inside the 24 hour hold
+ * ON_HOLD            delivered, inside the 4 working day hold
  * AVAILABLE          delivered, hold over, not part of a payout: can be requested
  * REQUESTED          locked in a payout the admin has not decided yet
  * PAID               included in a payout the admin has paid
@@ -40,8 +78,6 @@ export interface EarningResult {
   state: EarningState;
   /** Only for ON_HOLD. */
   unlocksAt?: Date;
-  /** Only for ON_HOLD: whole hours left, rounded up, so "1 minute left" reads as 1h and never as 0h. */
-  hoursLeft?: number;
 }
 
 const DELIVERED_STATES: OrderStatus[] = ["DELIVERED", "COMPLETED"];
@@ -57,9 +93,8 @@ export function earningState({ status, deliveredAt, payoutStatus }: EarningInput
   if (payoutStatus === "REQUESTED") return { state: "REQUESTED" };
 
   // No delivery time on a delivered order would be a data fault; treat it as still on hold rather than pay out early.
-  if (!deliveredAt) return { state: "ON_HOLD", hoursLeft: HOLD_HOURS };
+  if (!deliveredAt) return { state: "ON_HOLD" };
   if (holdHasEnded(deliveredAt, now)) return { state: "AVAILABLE" };
 
-  const unlocksAt = holdEndsAt(deliveredAt);
-  return { state: "ON_HOLD", unlocksAt, hoursLeft: Math.ceil((unlocksAt.getTime() - now.getTime()) / 3_600_000) };
+  return { state: "ON_HOLD", unlocksAt: holdEndsAt(deliveredAt) };
 }
