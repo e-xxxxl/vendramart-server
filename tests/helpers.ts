@@ -112,6 +112,8 @@ export const vendorBody = (over: Record<string, unknown> = {}) => ({
   businessName: "Bodija Provisions",
   description: "Grains, flour and kitchen staples",
   cacNumber: "RC1234567",
+  // Each call gets its own NIN, because one NIN can belong to one store only.
+  nin: String(Math.floor(1e10 + Math.random() * 9e10)),
   pickup: { line: "Bodija Market, Ibadan", ...IBADAN },
   bank: { bankName: "GTBank", accountNumber: "0123456789", accountName: "Bodija Provisions" },
   ...over,

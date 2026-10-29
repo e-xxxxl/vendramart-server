@@ -8,7 +8,15 @@ export function detectImageKind(buf: Buffer): ImageKind | null {
   return null;
 }
 
-/** For payout receipts in Phase 6 (image or PDF). */
+/** For documents that may be an image or a PDF (payout receipts, NIN slips). */
 export function isPdf(buf: Buffer): boolean {
   return buf.length >= 5 && buf.subarray(0, 5).toString("ascii") === "%PDF-";
+}
+
+/** Sniffs the real file type of an uploaded document: a JPG, PNG or WebP image, or a PDF. The name and browser-sent type are not trusted. */
+export function classifyDocument(buffer: Buffer): { mime: string; ext: string } | null {
+  const image = detectImageKind(buffer);
+  if (image) return { mime: `image/${image}`, ext: image === "jpeg" ? "jpg" : image };
+  if (isPdf(buffer)) return { mime: "application/pdf", ext: "pdf" };
+  return null;
 }

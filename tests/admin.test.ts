@@ -291,7 +291,7 @@ describe("search", () => {
   it("finds a payout request by its number", async () => {
     const o = await paidOrder();
     const admin = await createAdmin();
-    await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt: new Date(Date.now() - 30 * 3600_000) });
+    await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt: new Date(Date.now() - 10 * 24 * 3600_000) }); // well past the 4 working day hold
     const made = await asUser(o.vendorCookies.bodija).post("/vendor/payouts");
     expect(made.status).toBe(201);
     const res = await asUser(admin.cookie).get(`/admin/search?q=${made.body.data.number}`);

@@ -12,6 +12,15 @@ const vendorSchema = new Schema(
     phone: { type: String, required: true, trim: true },
     email: { type: String, required: true, lowercase: true, trim: true },
     cacNumber: { type: String, trim: true, maxlength: 30 },
+    // National Identification Number (11 digits) and a copy of the NIN slip. Private: admins only, never shown to shoppers.
+    // Unique when present, so one person cannot open several stores on the same identity.
+    nin: { type: String, trim: true, unique: true, sparse: true },
+    ninSlip: {
+      publicId: { type: String },
+      mime: { type: String },
+      resourceType: { type: String },
+      uploadedAt: { type: Date },
+    },
     description: { type: String, trim: true, maxlength: 600 },
     logo: { type: String },
     bank: {
@@ -41,6 +50,8 @@ export type VendorDoc = HydratedDocument<VendorAttrs>;
 export const Vendor = model("Vendor", vendorSchema);
 
 export const maskAccount = (n: string) => `•••• ${n.slice(-4)}`;
+/** Only the last four digits of a NIN are ever shown back to the vendor. */
+export const maskNin = (n: string) => `*******${n.slice(-4)}`;
 
 /** What the public storefront may see. Never bank details, CAC number, phone or email. */
 export const publicVendor = (v: VendorDoc) => ({
@@ -62,6 +73,11 @@ export const ownVendor = (v: VendorDoc) => ({
   phone: v.phone,
   email: v.email,
   cacNumber: v.cacNumber ?? null,
+  ninMasked: v.nin ? maskNin(v.nin) : null,
+  hasNinSlip: Boolean(v.ninSlip?.publicId),
+  ninSlipUploadedAt: v.ninSlip?.uploadedAt ?? null,
+  /** Identity can be changed while the store is waiting for approval, or while nothing is on file yet. After that, support must do it. */
+  canEditIdentity: v.status === "PENDING" || !v.nin || !v.ninSlip?.publicId,
   description: v.description ?? null,
   logo: v.logo ?? null,
   status: v.status,

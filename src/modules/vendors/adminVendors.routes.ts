@@ -9,6 +9,7 @@ import { Product } from "../../models/Product.js";
 import { Vendor, VENDOR_STATUSES, type VendorDoc } from "../../models/Vendor.js";
 import { suspendSchema } from "./vendor.schemas.js";
 import { notifyVendorDecision } from "../accounts/accountEvents.js";
+import { sendNinSlip } from "./identity.service.js";
 
 // Mounted under /api/admin/vendors, so the ADMIN role check has already run.
 export const adminVendorsRouter = Router();
@@ -22,6 +23,9 @@ const present = (v: VendorDoc, productCount?: number) => ({
   email: v.email,
   phone: v.phone,
   cacNumber: v.cacNumber ?? null,
+  // Identity: the full NIN is for admin review only. The slip itself is opened through its own route.
+  nin: v.nin ?? null,
+  ninSlip: v.ninSlip?.publicId ? { uploadedAt: v.ninSlip.uploadedAt ?? null, mime: v.ninSlip.mime ?? null } : null,
   description: v.description ?? null,
   status: v.status,
   statusReason: v.statusReason ?? null,
@@ -63,6 +67,14 @@ adminVendorsRouter.get(
   asyncHandler(async (req, res) => {
     const vendor = await findVendor(req.validated.params.id);
     ok(res, present(vendor, await Product.countDocuments({ vendorId: vendor._id })));
+  }),
+);
+
+adminVendorsRouter.get(
+  "/:id/nin-slip",
+  validate({ params: z.object({ id: objectId }) }),
+  asyncHandler(async (req, res) => {
+    await sendNinSlip(res, await findVendor(req.validated.params.id));
   }),
 );
 

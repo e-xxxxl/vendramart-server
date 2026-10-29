@@ -8,7 +8,7 @@ import { Vendor, type VendorDoc } from "../../models/Vendor.js";
 import type { UserDoc } from "../../models/User.js";
 import { getPrivateStorage } from "../../services/storage/index.js";
 import { AppError } from "../../utils/AppError.js";
-import { detectImageKind, isPdf } from "../../utils/fileType.js";
+import { classifyDocument } from "../../utils/fileType.js";
 import { availableFilter, declinedPayoutIds } from "../earnings/earnings.service.js";
 import { notifyPayoutDeclined, notifyPayoutPaid, notifyPayoutRequested } from "./payoutEvents.js";
 
@@ -82,12 +82,7 @@ export interface ReceiptFile {
 }
 
 /** Sniffs the real file type; the name and browser-sent type are not trusted. Receipts may be an image or a PDF. */
-export function classifyReceipt(buffer: Buffer): { mime: string; ext: string } | null {
-  const image = detectImageKind(buffer);
-  if (image) return { mime: `image/${image}`, ext: image === "jpeg" ? "jpg" : image };
-  if (isPdf(buffer)) return { mime: "application/pdf", ext: "pdf" };
-  return null;
-}
+export const classifyReceipt = classifyDocument;
 
 function mapTransitionError(err: unknown): never {
   if (err instanceof PayoutTransitionError) throw AppError.conflict("This payout request has already been decided.");
