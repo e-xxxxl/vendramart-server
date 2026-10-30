@@ -6,7 +6,10 @@ import { ok } from "../../utils/respond.js";
 import { Product } from "../../models/Product.js";
 import { ownVendor } from "../../models/Vendor.js";
 import { getVendorForUser, updatePickup } from "./vendor.service.js";
-import { updateBankSchema, updatePickupSchema, updateProfileSchema } from "./vendor.schemas.js";
+import { updateBankSchema, updateNinSchema, updatePickupSchema, updateProfileSchema } from "./vendor.schemas.js";
+import { saveNinSlip, sendNinSlip, setNin } from "./identity.service.js";
+import { singleFile } from "../../middleware/upload.js";
+import { AppError } from "../../utils/AppError.js";
 import { vendorProductsRouter } from "../products/vendorProducts.routes.js";
 import { vendorUploadRouter } from "../products/uploads.routes.js";
 import { vendorOrdersRouter, VENDOR_GROUPS } from "./vendorOrders.routes.js";
@@ -44,6 +47,19 @@ vendorRouter.patch("/bank", validate({ body: updateBankSchema }), asyncHandler(a
 vendorRouter.patch("/pickup", validate({ body: updatePickupSchema }), asyncHandler(async (req, res) => {
     const vendor = await getVendorForUser(req.user._id);
     ok(res, ownVendor(await updatePickup(vendor, req.validated.body)));
+}));
+vendorRouter.patch("/identity", validate({ body: updateNinSchema }), asyncHandler(async (req, res) => {
+    const vendor = await getVendorForUser(req.user._id);
+    ok(res, ownVendor(await setNin(vendor, req.validated.body.nin)));
+}));
+vendorRouter.post("/identity/slip", singleFile, asyncHandler(async (req, res) => {
+    if (!req.file)
+        throw AppError.validation("Choose the NIN slip to upload", [{ path: "file", message: "Choose the NIN slip to upload" }]);
+    const vendor = await getVendorForUser(req.user._id);
+    ok(res, ownVendor(await saveNinSlip(vendor, req.file.buffer)));
+}));
+vendorRouter.get("/identity/slip", asyncHandler(async (req, res) => {
+    await sendNinSlip(res, await getVendorForUser(req.user._id));
 }));
 vendorRouter.use("/orders", vendorOrdersRouter);
 vendorRouter.use(vendorEarningsRouter);

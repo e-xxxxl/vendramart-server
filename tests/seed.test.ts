@@ -7,7 +7,7 @@ import { ensureAdmin } from "../src/seed/admin.js";
 import { DEMO_EMAIL_DOMAIN, seedDemoData } from "../src/seed/demo.js";
 import { holdEndsAt } from "../src/domain/earnings.js";
 import { seedDemoOrders } from "../src/seed/demoOrders.js";
-import { api, clearDb, loginCookie, seedReferenceData, startDb, stopDb } from "./helpers.js";
+import { api, clearDb, loginToken, seedReferenceData, startDb, stopDb } from "./helpers.js";
 import { asUser } from "./fulfilmentHelpers.js";
 
 const PASSWORD = "Demo12345";
@@ -80,13 +80,13 @@ describe("the starting data set", () => {
 
   it("gives a store money that is available, on hold and on its way, and the vendor can request a payout", async () => {
     await seedAll();
-    const cookie = await loginCookie(`vendor@${DEMO_EMAIL_DOMAIN}`, PASSWORD);
-    const summary = (await asUser(cookie).get("/vendor/earnings")).body.data.summary;
+    const bearer = await loginToken(`vendor@${DEMO_EMAIL_DOMAIN}`, PASSWORD);
+    const summary = (await asUser(bearer).get("/vendor/earnings")).body.data.summary;
     expect(summary.availableKobo).toBeGreaterThan(0);
     expect(summary.onHoldKobo).toBeGreaterThan(0);
     expect(summary.awaitingKobo).toBeGreaterThan(0);
 
-    const res = await asUser(cookie).post("/vendor/payouts");
+    const res = await asUser(bearer).post("/vendor/payouts");
     expect(res.status).toBe(201);
     expect(res.body.data.amountKobo).toBe(summary.availableKobo);
   });
@@ -94,8 +94,8 @@ describe("the starting data set", () => {
   it("fills the admin dashboard and leaves one delivery waiting for a handler", async () => {
     await seedAll();
     await ensureAdmin({ email: "admin@example.com", password: PASSWORD });
-    const cookie = await loginCookie("admin@example.com", PASSWORD);
-    const o = (await asUser(cookie).get("/admin/overview")).body.data;
+    const bearer = await loginToken("admin@example.com", PASSWORD);
+    const o = (await asUser(bearer).get("/admin/overview")).body.data;
     expect(o.sales.orders).toBe(9);
     expect(o.commissionKobo).toBeGreaterThan(0);
     expect(o.deliveries.needsHandler).toBe(1);
@@ -106,12 +106,12 @@ describe("the starting data set", () => {
 
   it("shows the seeded orders to the customer, with the handler only on the deliveries assigned to them", async () => {
     await seedAll();
-    const customer = await loginCookie(`customer@${DEMO_EMAIL_DOMAIN}`, PASSWORD);
+    const customer = await loginToken(`customer@${DEMO_EMAIL_DOMAIN}`, PASSWORD);
     expect((await asUser(customer).get("/orders")).body.data.length).toBeGreaterThan(0);
 
     const handler = await User.findOne({ email: `handler@${DEMO_EMAIL_DOMAIN}` });
-    const cookie = await loginCookie(`handler@${DEMO_EMAIL_DOMAIN}`, PASSWORD);
-    const res = await asUser(cookie).get("/handler/deliveries?limit=30");
+    const bearer = await loginToken(`handler@${DEMO_EMAIL_DOMAIN}`, PASSWORD);
+    const res = await asUser(bearer).get("/handler/deliveries?limit=30");
     expect(res.status).toBe(200);
     const { active, done } = res.body.data.counts;
     expect(active).toBeGreaterThan(0);
@@ -131,8 +131,8 @@ describe("the admin account seed", () => {
     expect(await ensureAdmin({ email: "Boss@Example.com", password: "Passw0rd123", name: "Boss" })).toBe("created");
     expect(await ensureAdmin({ email: "boss@example.com", password: "NewPassw0rd9" })).toBe("reset");
     expect(await User.countDocuments({ role: "ADMIN" })).toBe(1);
-    expect((await api().post("/api/auth/login").set({ "X-Requested-With": "vendramart" }).send({ email: "boss@example.com", password: "NewPassw0rd9" })).status).toBe(200);
-    expect((await api().post("/api/auth/login").set({ "X-Requested-With": "vendramart" }).send({ email: "boss@example.com", password: "Passw0rd123" })).status).toBe(401);
+    expect((await api().post("/api/auth/login").send({ email: "boss@example.com", password: "NewPassw0rd9" })).status).toBe(200);
+    expect((await api().post("/api/auth/login").send({ email: "boss@example.com", password: "Passw0rd123" })).status).toBe(401);
   });
 
   it("refuses to turn an existing customer or vendor into an admin, and short passwords", async () => {

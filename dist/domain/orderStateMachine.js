@@ -21,7 +21,7 @@ const RULES = [
     { from: "PICKED_UP", to: "FAILED_DELIVERY", actors: ["HANDLER"] },
     { from: "FAILED_DELIVERY", to: "PICKED_UP", actors: ["ADMIN"] }, // retry the delivery
     { from: "FAILED_DELIVERY", to: "CANCELLED", actors: ["ADMIN"] },
-    { from: "DELIVERED", to: "COMPLETED", actors: ["SYSTEM"] }, // 24 hours after deliveredAt
+    { from: "DELIVERED", to: "COMPLETED", actors: ["SYSTEM"] }, // when the hold after deliveredAt ends
 ];
 export const TERMINAL = ["COMPLETED", "CANCELLED"];
 export function canTransition(from, to, actor) {

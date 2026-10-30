@@ -8,7 +8,7 @@ import { cancelPendingOrder, expireStaleOrders } from "../src/modules/orders/ord
 import { DevGateway } from "../src/services/payments/DevGateway.js";
 import { DEV_WEBHOOK_SECRET, setPaymentGateway } from "../src/services/payments/index.js";
 import { AppError } from "../src/utils/AppError.js";
-import { XRW, api, clearDb, fakeDistance, seedReferenceData, startDb, stopDb } from "./helpers.js";
+import { api, clearDb, fakeDistance, seedReferenceData, startDb, stopDb } from "./helpers.js";
 import { WEBHOOK_SECRET, chargeSuccess, fakeGateway, placeOrder, sendWebhook, twoVendorScenario } from "./paymentHelpers.js";
 
 beforeAll(startDb);
@@ -55,7 +55,7 @@ describe("signature check", () => {
     expect((await Order.findById(order._id))!.status).toBe("PAID");
   });
 
-  it("needs no cookie or CSRF header", async () => {
+  it("needs no bearer or CSRF header", async () => {
     const { data } = await pending();
     const res = await sendWebhook(chargeSuccess(data.reference)); // no X-Requested-With, no session
     expect(res.status).toBe(200);
@@ -304,14 +304,14 @@ describe("the development gateway (no Paystack key)", () => {
       const tx = await api().get(`/api/dev/paystack/transaction?reference=${data.reference}`);
       expect(tx.body.data).toMatchObject({ amountKobo: 3222000, status: "pending", orderNumber: "VM-10001" });
 
-      const charge = await api().post("/api/dev/paystack/charge").set(XRW).send({ reference: data.reference, outcome: "success" });
+      const charge = await api().post("/api/dev/paystack/charge").send({ reference: data.reference, outcome: "success" });
       expect(charge.status).toBe(200);
       expect(charge.body.data).toMatchObject({ webhookStatus: 200, data: { outcome: "PAID" } });
       expect((await Order.findById(order._id))!.status).toBe("PAID");
       expect((await Product.findById(flour._id))!.soldCount).toBe(1);
 
       // "Paying" twice is the same as a webhook replay.
-      const again = await api().post("/api/dev/paystack/charge").set(XRW).send({ reference: data.reference, outcome: "success" });
+      const again = await api().post("/api/dev/paystack/charge").send({ reference: data.reference, outcome: "success" });
       expect(again.body.data.data.outcome).toBe("DUPLICATE");
     } finally {
       setPaymentGateway(fakeGateway, WEBHOOK_SECRET);
@@ -323,7 +323,7 @@ describe("the development gateway (no Paystack key)", () => {
     setPaymentGateway(dev, DEV_WEBHOOK_SECRET);
     try {
       const { data, order } = await pending();
-      const res = await api().post("/api/dev/paystack/charge").set(XRW).send({ reference: data.reference, outcome: "failed" });
+      const res = await api().post("/api/dev/paystack/charge").send({ reference: data.reference, outcome: "failed" });
       expect(res.body.data.outcome).toBe("FAILED");
       expect((await Order.findById(order._id))!.status).toBe("PENDING_PAYMENT");
     } finally {
@@ -332,7 +332,7 @@ describe("the development gateway (no Paystack key)", () => {
   });
 
   it("is switched off when a real gateway is installed", async () => {
-    const res = await api().post("/api/dev/paystack/charge").set(XRW).send({ reference: "VM-10001-AAAAAAAA", outcome: "success" });
+    const res = await api().post("/api/dev/paystack/charge").send({ reference: "VM-10001-AAAAAAAA", outcome: "success" });
     expect(res.status).toBe(404);
     vi.restoreAllMocks();
   });

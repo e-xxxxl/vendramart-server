@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { calculateLineEarnings } from "../../domain/commission.js";
 import { sumKobo } from "../../domain/money.js";
-import { env } from "../../config/env.js";
+import { primaryClientOrigin } from "../../config/env.js";
 import { nextSeq } from "../../models/Counter.js";
 import { Order } from "../../models/Order.js";
 import { Product } from "../../models/Product.js";
@@ -118,7 +118,7 @@ export async function createOrder(user, items, addressId) {
                 email: user.email,
                 amountKobo: order.totalKobo,
                 reference,
-                callbackUrl: `${env.CLIENT_ORIGIN}/checkout/callback?reference=${encodeURIComponent(reference)}`,
+                callbackUrl: `${primaryClientOrigin}/checkout/callback/?reference=${encodeURIComponent(reference)}`,
                 metadata: { orderId: String(order._id), orderNumber },
             });
             return { order, authorizationUrl };

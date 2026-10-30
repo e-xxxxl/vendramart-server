@@ -7,7 +7,7 @@ import { StatusLog } from "../src/models/StatusLog.js";
 import { SubOrder } from "../src/models/SubOrder.js";
 import { expireStaleOrders, subOrderLetter } from "../src/modules/orders/orders.service.js";
 import { AppError } from "../src/utils/AppError.js";
-import { api, clearDb, createCustomer, createProduct, createUser, createVendor, fakeDistance, loginCookie, seedReferenceData, startDb, stopDb, XRW } from "./helpers.js";
+import { api, clearDb, createCustomer, createProduct, createUser, createVendor, fakeDistance, loginToken, seedReferenceData, startDb, stopDb } from "./helpers.js";
 import { fakeGateway, placeOrder, placeOrderReq, twoVendorScenario } from "./paymentHelpers.js";
 
 beforeAll(startDb);
@@ -86,7 +86,7 @@ describe("POST /api/checkout (create order)", () => {
     const vendor = await createVendor({ name: "Busy Store" });
     const product = await createProduct(vendor.vendor, { stock: 100 });
     const customers = await Promise.all(Array.from({ length: 6 }, (_, i) => createCustomer({ email: `buyer${i}@example.com` })));
-    const results = await Promise.all(customers.map((c) => placeOrderReq(c.cookie, { items: [{ productId: String(product._id), qty: 2 }], addressId: String(c.address._id) })));
+    const results = await Promise.all(customers.map((c) => placeOrderReq(c.bearer, { items: [{ productId: String(product._id), qty: 2 }], addressId: String(c.address._id) })));
     expect(results.map((r) => r.status)).toEqual([201, 201, 201, 201, 201, 201]);
     const numbers = results.map((r) => r.body.data.orderNumber);
     expect(new Set(numbers).size).toBe(6);
@@ -143,7 +143,7 @@ describe("POST /api/checkout (create order)", () => {
       const product = await createProduct(vendor.vendor, { stock: 1 });
       const [a, b] = await Promise.all([createCustomer({ email: "a@example.com" }), createCustomer({ email: "b@example.com" })]);
       const body = (c: typeof a) => ({ items: [{ productId: String(product._id), qty: 1 }], addressId: String(c.address._id) });
-      const [ra, rb] = await Promise.all([placeOrderReq(a.cookie, body(a)), placeOrderReq(b.cookie, body(b))]);
+      const [ra, rb] = await Promise.all([placeOrderReq(a.bearer, body(a)), placeOrderReq(b.bearer, body(b))]);
       expect([ra.status, rb.status].sort()).toEqual([201, 409]);
       expect((await Product.findById(product._id))!.stock).toBe(0);
       expect(await Order.countDocuments()).toBe(1);
@@ -161,7 +161,7 @@ describe("POST /api/checkout (create order)", () => {
         return original(...args);
       };
       try {
-        const res = await placeOrderReq(customer.cookie, {
+        const res = await placeOrderReq(customer.bearer, {
           items: [{ productId: String(flour._id), qty: 2 }, { productId: String(oil._id), qty: 1 }],
           addressId: String(customer.address._id),
         });
@@ -175,7 +175,7 @@ describe("POST /api/checkout (create order)", () => {
 
     it("refuses a cart that exceeds stock, with nothing held and no order", async () => {
       const { customer, flour } = await twoVendorScenario();
-      const res = await placeOrderReq(customer.cookie, { items: [{ productId: String(flour._id), qty: 11 }], addressId: String(customer.address._id) });
+      const res = await placeOrderReq(customer.bearer, { items: [{ productId: String(flour._id), qty: 11 }], addressId: String(customer.address._id) });
       expect(res.status).toBe(409);
       expect((await Product.findById(flour._id))!.stock).toBe(10);
       expect(await Order.countDocuments()).toBe(0);
@@ -187,7 +187,7 @@ describe("POST /api/checkout (create order)", () => {
     it("cancels the order, returns the stock and tells the shopper to retry", async () => {
       const { customer, items, flour } = await twoVendorScenario();
       fakeGateway.failInit = AppError.unavailable("We could not reach our payment provider. Please try again in a moment.");
-      const res = await placeOrderReq(customer.cookie, { items, addressId: String(customer.address._id) });
+      const res = await placeOrderReq(customer.bearer, { items, addressId: String(customer.address._id) });
       expect(res.status).toBe(503);
       expect(res.body.error.code).toBe("SERVICE_UNAVAILABLE");
 
@@ -203,7 +203,7 @@ describe("POST /api/checkout (create order)", () => {
     it("does the same for an unexpected crash, never leaving stock held", async () => {
       const { customer, items, flour } = await twoVendorScenario();
       fakeGateway.failInit = new Error("socket exploded");
-      const res = await placeOrderReq(customer.cookie, { items, addressId: String(customer.address._id) });
+      const res = await placeOrderReq(customer.bearer, { items, addressId: String(customer.address._id) });
       expect(res.status).toBe(500);
       expect((await Order.findOne())!.status).toBe("CANCELLED");
       expect((await Product.findById(flour._id))!.stock).toBe(10);
@@ -215,27 +215,27 @@ describe("POST /api/checkout (create order)", () => {
       const { customer, items } = await twoVendorScenario();
       const addressId = String(customer.address._id);
       for (const extra of [{ totalKobo: 1 }, { deliveryFeeKobo: 1 }, { reference: "mine" }, { amountKobo: 100 }, { status: "PAID" }]) {
-        expect((await placeOrderReq(customer.cookie, { items, addressId, ...extra })).status, JSON.stringify(extra)).toBe(422);
+        expect((await placeOrderReq(customer.bearer, { items, addressId, ...extra })).status, JSON.stringify(extra)).toBe(422);
       }
-      expect((await placeOrderReq(customer.cookie, { items: items.map((i) => ({ ...i, priceKobo: 1 })), addressId })).status).toBe(422);
+      expect((await placeOrderReq(customer.bearer, { items: items.map((i) => ({ ...i, priceKobo: 1 })), addressId })).status).toBe(422);
       expect(await Order.countDocuments()).toBe(0);
     });
 
     it("refuses an empty cart, another customer's address, and a coming-soon city", async () => {
       const { customer, items } = await twoVendorScenario();
-      expect((await placeOrderReq(customer.cookie, { items: [], addressId: String(customer.address._id) })).status).toBe(422);
+      expect((await placeOrderReq(customer.bearer, { items: [], addressId: String(customer.address._id) })).status).toBe(422);
       const other = await createCustomer({ email: "other@example.com" });
-      expect((await placeOrderReq(customer.cookie, { items, addressId: String(other.address._id) })).status).toBe(404);
+      expect((await placeOrderReq(customer.bearer, { items, addressId: String(other.address._id) })).status).toBe(404);
       expect(await Order.countDocuments()).toBe(0);
     });
 
     it("is for signed-in customers only", async () => {
       const { items, customer } = await twoVendorScenario();
       const body = { items, addressId: String(customer.address._id) };
-      expect((await api().post("/api/checkout").set(XRW).send(body)).status).toBe(401);
+      expect((await api().post("/api/checkout").send(body)).status).toBe(401);
       for (const role of ["VENDOR", "ADMIN", "HANDLER"] as const) {
         await createUser(role, `${role}@example.com`);
-        expect((await placeOrderReq(await loginCookie(`${role}@example.com`), body)).status, role).toBe(403);
+        expect((await placeOrderReq(await loginToken(`${role}@example.com`), body)).status, role).toBe(403);
       }
       expect(await Order.countDocuments()).toBe(0);
     });
@@ -291,7 +291,7 @@ describe("expiry of unpaid orders", () => {
     const { customer, items, flour } = await twoVendorScenario();
     const { order, data } = await placeOrder(customer, items);
     await Order.updateOne({ _id: order._id }, { expiresAt: new Date(Date.now() - 1000) });
-    const res = await api().get(`/api/orders/payment-status?reference=${data.reference}`).set("Cookie", customer.cookie);
+    const res = await api().get(`/api/orders/payment-status?reference=${data.reference}`).set("Authorization", customer.bearer);
     expect(res.body.data.status).toBe("CANCELLED");
     expect((await Product.findById(flour._id))!.stock).toBe(10);
   });
@@ -304,7 +304,7 @@ describe("customer order views", () => {
     const a = await placeOrder(customer, items);
     const b = await placeOrder(customer, items);
     await placeOrder(other, items);
-    const res = await api().get("/api/orders").set("Cookie", customer.cookie);
+    const res = await api().get("/api/orders").set("Authorization", customer.bearer);
     expect(res.body.meta.total).toBe(2);
     expect(res.body.data.map((o: { orderNumber: string }) => o.orderNumber)).toEqual([b.data.orderNumber, a.data.orderNumber]);
     expect(res.body.data[0]).toMatchObject({ status: "PENDING_PAYMENT", totalKobo: 3222000, itemCount: 2, moreItems: false, deliveries: ["PENDING_PAYMENT", "PENDING_PAYMENT"] });
@@ -314,7 +314,7 @@ describe("customer order views", () => {
   it("shows an order with each vendor's part, items, delivery leg and timeline", async () => {
     const { customer, items } = await twoVendorScenario();
     const { data } = await placeOrder(customer, items);
-    const res = await api().get(`/api/orders/${data.orderId}`).set("Cookie", customer.cookie);
+    const res = await api().get(`/api/orders/${data.orderId}`).set("Authorization", customer.bearer);
     expect(res.status).toBe(200);
     const o = res.body.data;
     expect(o).toMatchObject({ orderNumber: "VM-10001", totalKobo: 3222000, itemsSubtotalKobo: 3030000, deliveryTotalKobo: 192000, address: { line: "12 Awolowo Avenue, Old Bodija, Ibadan" } });
@@ -328,7 +328,7 @@ describe("customer order views", () => {
   it("never exposes commission or vendor earnings to the customer", async () => {
     const { customer, items } = await twoVendorScenario();
     const { data } = await placeOrder(customer, items);
-    const text = JSON.stringify([(await api().get(`/api/orders/${data.orderId}`).set("Cookie", customer.cookie)).body, (await api().get("/api/orders").set("Cookie", customer.cookie)).body]);
+    const text = JSON.stringify([(await api().get(`/api/orders/${data.orderId}`).set("Authorization", customer.bearer)).body, (await api().get("/api/orders").set("Authorization", customer.bearer)).body]);
     // (The word "payment" is not checked: PENDING_PAYMENT is a normal status the customer sees.)
     for (const word of ["commission", "vendorEarning", "paystack", "passwordHash", "accountNumber", "bank"]) expect(text.toLowerCase(), word).not.toContain(word.toLowerCase());
   });
@@ -337,18 +337,18 @@ describe("customer order views", () => {
     const { customer, items } = await twoVendorScenario();
     const { data } = await placeOrder(customer, items);
     const other = await createCustomer({ email: "snoop@example.com" });
-    expect((await api().get(`/api/orders/${data.orderId}`).set("Cookie", other.cookie)).status).toBe(404);
-    expect((await api().get(`/api/orders/payment-status?reference=${data.reference}`).set("Cookie", other.cookie)).status).toBe(404);
+    expect((await api().get(`/api/orders/${data.orderId}`).set("Authorization", other.bearer)).status).toBe(404);
+    expect((await api().get(`/api/orders/payment-status?reference=${data.reference}`).set("Authorization", other.bearer)).status).toBe(404);
     expect((await api().get(`/api/orders/${data.orderId}`)).status).toBe(401);
     await createUser("ADMIN", "admin@example.com");
-    expect((await api().get(`/api/orders/${data.orderId}`).set("Cookie", await loginCookie("admin@example.com"))).status).toBe(403);
-    expect((await api().get("/api/orders/nope").set("Cookie", customer.cookie)).status).toBe(422);
+    expect((await api().get(`/api/orders/${data.orderId}`).set("Authorization", await loginToken("admin@example.com"))).status).toBe(403);
+    expect((await api().get("/api/orders/nope").set("Authorization", customer.bearer)).status).toBe(422);
   });
 
   it("answers the payment-status poll with the order status", async () => {
     const { customer, items } = await twoVendorScenario();
     const { data } = await placeOrder(customer, items);
-    const res = await api().get(`/api/orders/payment-status?reference=${data.reference}`).set("Cookie", customer.cookie);
+    const res = await api().get(`/api/orders/payment-status?reference=${data.reference}`).set("Authorization", customer.bearer);
     expect(res.body.data).toMatchObject({ orderId: data.orderId, orderNumber: "VM-10001", status: "PENDING_PAYMENT", totalKobo: 3222000, needsAttention: false });
   });
 });

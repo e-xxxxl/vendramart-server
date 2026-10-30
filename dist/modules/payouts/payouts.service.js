@@ -7,7 +7,7 @@ import { SubOrder } from "../../models/SubOrder.js";
 import { Vendor } from "../../models/Vendor.js";
 import { getPrivateStorage } from "../../services/storage/index.js";
 import { AppError } from "../../utils/AppError.js";
-import { detectImageKind, isPdf } from "../../utils/fileType.js";
+import { classifyDocument } from "../../utils/fileType.js";
 import { availableFilter, declinedPayoutIds } from "../earnings/earnings.service.js";
 import { notifyPayoutDeclined, notifyPayoutPaid, notifyPayoutRequested } from "./payoutEvents.js";
 const PAYOUT_NUMBER_START = 2290; // first payout is PR-2291
@@ -37,7 +37,7 @@ async function releaseOrphanLocks(vendorId) {
 }
 /**
  * The vendor asks for everything that is available right now. In one go it: locks the vendor, claims every
- * unlocked, delivered, 24-hour-cleared sub-order for this payout with a single atomic update, adds up what it
+ * unlocked, delivered, hold-cleared sub-order for this payout with a single atomic update, adds up what it
  * actually claimed, and creates the payout. Held, undelivered and already-requested orders are never included.
  */
 export async function requestPayout(vendor, user, now = new Date()) {
@@ -47,7 +47,7 @@ export async function requestPayout(vendor, user, now = new Date()) {
         const payoutId = new Types.ObjectId();
         const claim = await SubOrder.updateMany(availableFilter(vendor._id, now, await declinedPayoutIds(vendor._id)), { $set: { payoutId, payoutLockedAt: now } });
         if (claim.modifiedCount === 0)
-            throw AppError.conflict("You have no earnings available to withdraw yet. Earnings unlock 24 hours after delivery.");
+            throw AppError.conflict("You have no earnings available to withdraw yet. Earnings unlock 4 working days after delivery.");
         try {
             const claimed = await SubOrder.find({ payoutId });
             const payout = await Payout.create({
@@ -74,14 +74,7 @@ export async function requestPayout(vendor, user, now = new Date()) {
     }
 }
 /** Sniffs the real file type; the name and browser-sent type are not trusted. Receipts may be an image or a PDF. */
-export function classifyReceipt(buffer) {
-    const image = detectImageKind(buffer);
-    if (image)
-        return { mime: `image/${image}`, ext: image === "jpeg" ? "jpg" : image };
-    if (isPdf(buffer))
-        return { mime: "application/pdf", ext: "pdf" };
-    return null;
-}
+export const classifyReceipt = classifyDocument;
 function mapTransitionError(err) {
     if (err instanceof PayoutTransitionError)
         throw AppError.conflict("This payout request has already been decided.");

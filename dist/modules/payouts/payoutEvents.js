@@ -1,6 +1,7 @@
 import { User } from "../../models/User.js";
 import { getNotifier } from "../../services/notifications/index.js";
 import { formatNaira } from "../../utils/formatNaira.js";
+import { adminPayoutPage } from "../../utils/webLinks.js";
 const toRecipient = (u) => ({ id: String(u._id), name: u.name, email: u.email });
 const send = (to, m) => (to.length ? getNotifier().notify(to.map(toRecipient), m) : Promise.resolve());
 /** A notification problem must never break the money action that caused it. */
@@ -16,7 +17,7 @@ export const notifyPayoutRequested = (payout, vendor) => safely(async () => send
     kind: "PAYOUT_REQUESTED",
     title: `Payout request ${payout.number}`,
     body: `${vendor.businessName} asked for ${formatNaira(payout.amountKobo)} across ${payout.subOrderIds.length} ${payout.subOrderIds.length === 1 ? "order" : "orders"}.`,
-    link: `/admin/payouts?id=${payout._id}`,
+    link: adminPayoutPage(payout._id),
 }));
 export const notifyPayoutPaid = (payout, vendor) => safely(async () => {
     const owner = await User.findById(vendor.userId);

@@ -4,7 +4,7 @@ import { handlePaystackWebhook } from "./paymentWebhook.service.js";
 
 /**
  * Must be mounted BEFORE express.json(): the signature is computed over the exact bytes Paystack sent,
- * so the body has to arrive raw. No cookie, no CSRF header: authenticity comes from the signature alone.
+ * so the body has to arrive raw. No sign-in token: authenticity comes from the signature alone.
  */
 export function mountPaystackWebhook(app: Express) {
   app.post(

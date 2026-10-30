@@ -1,9 +1,7 @@
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
-import cookieParser from "cookie-parser";
 import { env, clientOrigins } from "./config/env.js";
-import { csrfGuard } from "./middleware/csrfGuard.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { adminRouter, customerRouter, handlerRouter } from "./modules/roleShells.js";
@@ -30,14 +28,14 @@ export function createApp() {
 
   // The website is on another address, and shows images this API serves in development, so they must be loadable cross-origin.
   app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
-  // The website is a static site on its own address, so the browser calls this API cross-origin with its sign-in cookie.
-  app.use(cors({ origin: clientOrigins, credentials: true, maxAge: 86400 }));
+  // The website is a static site on its own address, so the browser calls this API cross-origin. Signing in is a JWT sent
+  // in the Authorization header, so no cookie or credentials mode is involved.
+  app.use(cors({ origin: clientOrigins, maxAge: 86400 }));
 
   // The Paystack webhook (Phase 4) needs the raw body for signature checks, so it is mounted
   // BEFORE express.json() with express.raw(). Everything else gets parsed JSON.
   mountPaystackWebhook(app);
   app.use(express.json({ limit: "100kb" }));
-  app.use(cookieParser());
 
   // Local-disk image fallback (dev and tests only; production uses Cloudinary).
   if (!isProd) {
@@ -45,7 +43,6 @@ export function createApp() {
   }
 
   const api = express.Router();
-  api.use(csrfGuard);
   api.get("/health", (_req, res) => ok(res, { status: "ok" }));
   api.use(referenceRouter);
   api.use(bannersRouter);

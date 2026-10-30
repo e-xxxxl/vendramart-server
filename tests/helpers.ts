@@ -57,9 +57,6 @@ setImageStorage(memoryStorage);
 export const app = createApp();
 export const api = () => request(app);
 
-/** Header every state-changing request must carry (CSRF guard). */
-export const XRW = { "X-Requested-With": "vendramart" };
-
 export const PASSWORD = "Passw0rdTest";
 
 export const customerBody = (over: Record<string, unknown> = {}) => ({
@@ -87,12 +84,11 @@ export async function createUser(role: Role, email = `${role.toLowerCase()}@exam
   });
 }
 
-/** Logs in via the real endpoint and returns the Set-Cookie header value for reuse. */
-export async function loginCookie(email: string, password = PASSWORD): Promise<string> {
-  const res = await api().post("/api/auth/login").set(XRW).send({ email, password });
+/** Logs in via the real endpoint and returns the value for an Authorization header ("Bearer <token>"), ready to reuse. */
+export async function loginToken(email: string, password = PASSWORD): Promise<string> {
+  const res = await api().post("/api/auth/login").send({ email, password });
   if (res.status !== 200) throw new Error(`login failed: ${res.status} ${JSON.stringify(res.body)}`);
-  const raw = res.headers["set-cookie"] as unknown as string[];
-  return raw.map((c) => c.split(";")[0]).join("; ");
+  return `Bearer ${res.body.data.token}`;
 }
 
 // ---------- Phase 2 helpers ----------
@@ -218,8 +214,8 @@ export async function createCustomer(opts: { email?: string; point?: LatLng; cit
     cityId: opts.cityId === undefined ? ibadan._id : opts.cityId,
     isDefault: true,
   });
-  const cookie = await loginCookie(email);
-  return { user, address, cookie, email };
+  const bearer = await loginToken(email);
+  return { user, address, bearer, email };
 }
 
-export const quoteReq = (cookie: string, body: unknown) => api().post("/api/checkout/quote").set(XRW).set("Cookie", cookie).send(body as object);
+export const quoteReq = (bearer: string, body: unknown) => api().post("/api/checkout/quote").set("Authorization", bearer).send(body as object);

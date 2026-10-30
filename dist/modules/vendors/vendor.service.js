@@ -10,6 +10,7 @@ export async function registerVendor(input) {
     if (await User.exists({ email: input.email })) {
         throw AppError.conflict("An account with this email already exists. Try signing in.");
     }
+    await assertNinFree(input.nin);
     // Fail on a bad pin before creating anything.
     const city = await requireActiveCityForPoint(input.pickup, "pickup address");
     const user = await User.create({
@@ -28,6 +29,7 @@ export async function registerVendor(input) {
             phone: input.phone,
             email: input.email,
             cacNumber: input.cacNumber,
+            nin: input.nin,
             description: input.description,
             bank: input.bank,
             pickup: { ...input.pickup, cityId: city._id },
@@ -40,6 +42,12 @@ export async function registerVendor(input) {
         await User.deleteOne({ _id: user._id });
         throw err;
     }
+}
+/** One NIN, one store. `exceptVendor` lets a vendor re-save their own. */
+export async function assertNinFree(nin, exceptVendor) {
+    const taken = await Vendor.exists({ nin, ...(exceptVendor ? { _id: { $ne: exceptVendor } } : {}) });
+    if (taken)
+        throw AppError.conflict("This NIN is already linked to another store. Contact support if you think this is a mistake.");
 }
 export async function getVendorForUser(userId) {
     const vendor = await Vendor.findOne({ userId });

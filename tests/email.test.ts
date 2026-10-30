@@ -5,7 +5,7 @@ import { Vendor } from "../src/models/Vendor.js";
 import { EmailChannel, InAppChannel, ResendChannel, pickEmailChannel } from "../src/services/notifications/channels.js";
 import { escapeHtml, renderEmail } from "../src/services/notifications/emailTemplate.js";
 import { NotificationService } from "../src/services/notifications/index.js";
-import { PASSWORD, XRW, api, clearDb, createVendor, customerBody, seedReferenceData, startDb, stopDb, vendorBody } from "./helpers.js";
+import { PASSWORD, api, clearDb, createVendor, customerBody, seedReferenceData, startDb, stopDb, vendorBody } from "./helpers.js";
 import { createAdmin, emailLog, asUser } from "./fulfilmentHelpers.js";
 
 beforeAll(startDb);
@@ -129,7 +129,7 @@ async function waitFor(check: () => boolean | Promise<boolean>, ms = 3000) {
 
 describe("account emails", () => {
   it("welcomes a new customer, in the bell and by email", async () => {
-    const res = await api().post("/api/auth/register").set(XRW).send(customerBody({ email: "new@example.com" }));
+    const res = await api().post("/api/auth/register").send(customerBody({ email: "new@example.com" }));
     expect(res.status).toBe(201);
     expect(await waitFor(() => emailLog.to("new@example.com").length === 1)).toBe(true);
     expect(emailLog.to("new@example.com")[0]).toMatchObject({ title: "Welcome to VendraMart", link: "/" });
@@ -140,7 +140,7 @@ describe("account emails", () => {
   it("does not let a failing email service break sign-up", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     emailLog.failWith = new Error("mail server down");
-    const res = await api().post("/api/auth/register").set(XRW).send(customerBody({ email: "new@example.com" }));
+    const res = await api().post("/api/auth/register").send(customerBody({ email: "new@example.com" }));
     expect(res.status).toBe(201);
     expect(await User.countDocuments({ email: "new@example.com" })).toBe(1);
     errors.mockRestore();
@@ -148,7 +148,7 @@ describe("account emails", () => {
 
   it("confirms a store application to the owner and tells the admins there is one to review", async () => {
     const admin = await createAdmin();
-    const res = await api().post("/api/auth/vendor/register").set(XRW).send(vendorBody({ email: "owner@example.com", businessName: "Kemi Spices" }));
+    const res = await api().post("/api/auth/vendor/register").send(vendorBody({ email: "owner@example.com", businessName: "Kemi Spices" }));
     expect(res.status).toBe(201);
 
     expect(await waitFor(() => emailLog.to("owner@example.com").length === 1)).toBe(true);
@@ -161,7 +161,7 @@ describe("account emails", () => {
   it("tells a store owner when the store is approved, and when it is suspended and why", async () => {
     const admin = await createAdmin();
     const v = await createVendor({ name: "Pending Store", status: "PENDING", email: "pending@example.com" });
-    const a = asUser(admin.cookie);
+    const a = asUser(admin.bearer);
 
     expect((await a.post(`/admin/vendors/${v.vendor._id}/approve`)).status).toBe(200);
     expect(await waitFor(() => emailLog.to("pending@example.com").length === 1)).toBe(true);

@@ -8,7 +8,7 @@ import { Vendor } from "../src/models/Vendor.js";
 import { availableFilter, declinedPayoutIds, loadEarnings } from "../src/modules/earnings/earnings.service.js";
 import type { OpenResult, PrivateFileStorage, PutOptions } from "../src/services/storage/PrivateFileStorage.js";
 import { setPrivateStorage } from "../src/services/storage/index.js";
-import { XRW, api, clearDb, createUser, fakeDistance, loginCookie, pngBytes, seedReferenceData, startDb, stopDb } from "./helpers.js";
+import { api, clearDb, createUser, fakeDistance, loginToken, pngBytes, seedReferenceData, startDb, stopDb } from "./helpers.js";
 import { asUser, createAdmin, emailLog, paidOrder } from "./fulfilmentHelpers.js";
 import { fakeGateway } from "./paymentHelpers.js";
 
@@ -64,11 +64,11 @@ async function screenScenario() {
   await addSub(o.bodijaSub, { earnKobo: 2_700_000, status: "DELIVERED", deliveredAt: hoursAgo(2) }); // still held
   await addSub(o.bodijaSub, { earnKobo: 1_665_000, status: "PICKED_UP" }); // not delivered yet
   const admin = await createAdmin();
-  return { ...o, admin, vendor: asUser(o.vendorCookies.bodija), adminApi: asUser(admin.cookie) };
+  return { ...o, admin, vendor: asUser(o.vendorTokens.bodija), adminApi: asUser(admin.bearer) };
 }
 
-function pay(cookie: string, id: string, file?: { data: Buffer; name: string; type: string }) {
-  const req = api().post(`/api/admin/payouts/${id}/pay`).set(XRW).set("Cookie", cookie);
+function pay(bearer: string, id: string, file?: { data: Buffer; name: string; type: string }) {
+  const req = api().post(`/api/admin/payouts/${id}/pay`).set("Authorization", bearer);
   return file ? req.attach("file", file.data, { filename: file.name, contentType: file.type }) : req;
 }
 
@@ -97,7 +97,7 @@ describe("vendor earnings summary", () => {
     const o = await paidOrder();
     const base = Date.now();
     await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "DELIVERED", deliveredAt: new Date(unlockedBefore(new Date(base)).getTime() + 60_000) });
-    const summary = async () => (await asUser(o.vendorCookies.bodija).get("/vendor/earnings")).body.data.summary;
+    const summary = async () => (await asUser(o.vendorTokens.bodija).get("/vendor/earnings")).body.data.summary;
     const held = await summary();
     expect(held.availableKobo).toBe(0);
     expect(held.onHoldKobo).toBe(o.bodijaSub.vendorEarningKobo);
@@ -109,14 +109,14 @@ describe("vendor earnings summary", () => {
 
   it("shows a vendor only their own earnings", async () => {
     const o = await screenScenario();
-    const res = await asUser(o.vendorCookies.ojaba).get("/vendor/earnings");
+    const res = await asUser(o.vendorTokens.ojaba).get("/vendor/earnings");
     expect(res.body.data.summary.availableKobo).toBe(0);
     expect(res.body.data.rows.every((r: { ref: string }) => r.ref !== o.bodijaSub.ref)).toBe(true);
   });
 
   it("is for vendors only", async () => {
     const o = await paidOrder();
-    expect((await asUser(o.customer.cookie).get("/vendor/earnings")).status).toBe(403);
+    expect((await asUser(o.customer.bearer).get("/vendor/earnings")).status).toBe(403);
     expect((await api().get("/api/vendor/earnings")).status).toBe(401);
   });
 });
@@ -144,7 +144,7 @@ describe("requesting a payout", () => {
 
   it("refuses when nothing is available", async () => {
     const o = await paidOrder();
-    const res = await asUser(o.vendorCookies.bodija).post("/vendor/payouts");
+    const res = await asUser(o.vendorTokens.bodija).post("/vendor/payouts");
     expect(res.status).toBe(409);
     expect(await Payout.countDocuments()).toBe(0);
   });
@@ -209,10 +209,10 @@ describe("deciding a payout", () => {
 
   it("is for admins only", async () => {
     const o = await requested();
-    for (const cookie of [o.vendorCookies.bodija, o.customer.cookie]) {
-      expect((await asUser(cookie).get("/admin/payouts")).status).toBe(403);
-      expect((await pay(cookie, o.id, { data: pngBytes(), name: "r.png", type: "image/png" })).status).toBe(403);
-      expect((await asUser(cookie).post(`/admin/payouts/${o.id}/decline`, { reason: "nope nope" })).status).toBe(403);
+    for (const bearer of [o.vendorTokens.bodija, o.customer.bearer]) {
+      expect((await asUser(bearer).get("/admin/payouts")).status).toBe(403);
+      expect((await pay(bearer, o.id, { data: pngBytes(), name: "r.png", type: "image/png" })).status).toBe(403);
+      expect((await asUser(bearer).post(`/admin/payouts/${o.id}/decline`, { reason: "nope nope" })).status).toBe(403);
     }
     expect((await api().get("/api/admin/payouts")).status).toBe(401);
     expect((await Payout.findById(o.id))!.status).toBe("REQUESTED");
@@ -220,8 +220,8 @@ describe("deciding a payout", () => {
 
   it("will not mark paid without a receipt, or with a file that is not an image or PDF", async () => {
     const o = await requested();
-    expect((await pay(o.admin.cookie, o.id)).status).toBe(422);
-    const text = await pay(o.admin.cookie, o.id, { data: Buffer.from("not a receipt"), name: "receipt.png", type: "image/png" });
+    expect((await pay(o.admin.bearer, o.id)).status).toBe(422);
+    const text = await pay(o.admin.bearer, o.id, { data: Buffer.from("not a receipt"), name: "receipt.png", type: "image/png" });
     expect(text.status).toBe(422);
     expect((await Payout.findById(o.id))!.status).toBe("REQUESTED");
     expect(privateStorage.files.size).toBe(0);
@@ -229,7 +229,7 @@ describe("deciding a payout", () => {
 
   it("marks paid with an image receipt, stores it privately, and tells the vendor", async () => {
     const o = await requested();
-    const res = await pay(o.admin.cookie, o.id, { data: pngBytes(), name: "r.png", type: "image/png" });
+    const res = await pay(o.admin.bearer, o.id, { data: pngBytes(), name: "r.png", type: "image/png" });
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ status: "PAID", receiptUrl: `/api/payouts/${o.id}/receipt` });
     expect(privateStorage.files.size).toBe(1);
@@ -245,17 +245,17 @@ describe("deciding a payout", () => {
 
   it("accepts a PDF receipt", async () => {
     const o = await requested();
-    const res = await pay(o.admin.cookie, o.id, { data: pdfBytes(), name: "transfer.pdf", type: "application/pdf" });
+    const res = await pay(o.admin.bearer, o.id, { data: pdfBytes(), name: "transfer.pdf", type: "application/pdf" });
     expect(res.status).toBe(200);
-    const file = await asUser(o.vendorCookies.bodija).get(`/payouts/${o.id}/receipt`);
+    const file = await asUser(o.vendorTokens.bodija).get(`/payouts/${o.id}/receipt`);
     expect(file.status).toBe(200);
     expect(file.headers["content-type"]).toContain("application/pdf");
   });
 
   it("cannot be decided twice, and a lost race leaves no stray receipt", async () => {
     const o = await requested();
-    expect((await pay(o.admin.cookie, o.id, { data: pngBytes(), name: "r.png", type: "image/png" })).status).toBe(200);
-    expect((await pay(o.admin.cookie, o.id, { data: pngBytes(), name: "r.png", type: "image/png" })).status).toBe(409);
+    expect((await pay(o.admin.bearer, o.id, { data: pngBytes(), name: "r.png", type: "image/png" })).status).toBe(200);
+    expect((await pay(o.admin.bearer, o.id, { data: pngBytes(), name: "r.png", type: "image/png" })).status).toBe(409);
     expect((await o.adminApi.post(`/admin/payouts/${o.id}/decline`, { reason: "too late now" })).status).toBe(409);
     expect(privateStorage.files.size).toBe(1);
     expect((await Payout.findById(o.id))!.status).toBe("PAID");
@@ -264,7 +264,7 @@ describe("deciding a payout", () => {
   it("two admins deciding at the same moment: one wins", async () => {
     const o = await requested();
     const results = await Promise.all([
-      pay(o.admin.cookie, o.id, { data: pngBytes(), name: "r.png", type: "image/png" }),
+      pay(o.admin.bearer, o.id, { data: pngBytes(), name: "r.png", type: "image/png" }),
       o.adminApi.post(`/admin/payouts/${o.id}/decline`, { reason: "bank details wrong" }),
     ]);
     expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
@@ -311,14 +311,14 @@ describe("payout receipts", () => {
   async function paid() {
     const o = await screenScenario();
     const id = (await o.vendor.post("/vendor/payouts")).body.data.id as string;
-    await pay(o.admin.cookie, id, { data: pngBytes(), name: "r.png", type: "image/png" });
+    await pay(o.admin.bearer, id, { data: pngBytes(), name: "r.png", type: "image/png" });
     return { ...o, id };
   }
 
   it("opens for the vendor it was paid to and for admins", async () => {
     const o = await paid();
-    for (const cookie of [o.vendorCookies.bodija, o.admin.cookie]) {
-      const res = await asUser(cookie).get(`/payouts/${o.id}/receipt`);
+    for (const bearer of [o.vendorTokens.bodija, o.admin.bearer]) {
+      const res = await asUser(bearer).get(`/payouts/${o.id}/receipt`);
       expect(res.status).toBe(200);
       expect(res.headers["content-type"]).toContain("image/png");
       expect(res.headers["cache-control"]).toContain("no-store");
@@ -328,8 +328,8 @@ describe("payout receipts", () => {
   it("is a 404 for another vendor, a customer, and anyone signed out", async () => {
     const o = await paid();
     const staff = await createUser("HANDLER", "h@example.com");
-    for (const cookie of [o.vendorCookies.ojaba, o.customer.cookie, await loginCookie(staff.email)]) {
-      expect((await asUser(cookie).get(`/payouts/${o.id}/receipt`)).status).toBe(404);
+    for (const bearer of [o.vendorTokens.ojaba, o.customer.bearer, await loginToken(staff.email)]) {
+      expect((await asUser(bearer).get(`/payouts/${o.id}/receipt`)).status).toBe(404);
     }
     expect((await api().get(`/api/payouts/${o.id}/receipt`)).status).toBe(401);
   });

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Product } from "../src/models/Product.js";
 import { Vendor } from "../src/models/Vendor.js";
-import { XRW, api, clearDb, createProduct, createVendor, seedReferenceData, startDb, stopDb } from "./helpers.js";
+import { api, clearDb, createProduct, createVendor, seedReferenceData, startDb, stopDb } from "./helpers.js";
 
 beforeAll(startDb);
 afterAll(stopDb);
@@ -10,7 +10,7 @@ beforeEach(async () => {
   await seedReferenceData();
 });
 
-const validate = (items: unknown) => api().post("/api/cart/validate").set(XRW).send({ items });
+const validate = (items: unknown) => api().post("/api/cart/validate").send({ items });
 
 describe("POST /api/cart/validate", () => {
   it("is public and returns the current name, price, vendor and stock", async () => {

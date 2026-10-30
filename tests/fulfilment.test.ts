@@ -6,7 +6,7 @@ import { SubOrder } from "../src/models/SubOrder.js";
 import { User } from "../src/models/User.js";
 import { Vendor } from "../src/models/Vendor.js";
 import { completeDeliveredOrders } from "../src/modules/orders/subOrderTransitions.js";
-import { PASSWORD, XRW, api, clearDb, createUser, fakeDistance, seedReferenceData, startDb, stopDb } from "./helpers.js";
+import { PASSWORD, api, clearDb, createUser, fakeDistance, seedReferenceData, startDb, stopDb } from "./helpers.js";
 import { createAdmin, createHandler, emailLog, asUser, paidOrder, reload } from "./fulfilmentHelpers.js";
 import { fakeGateway } from "./paymentHelpers.js";
 
@@ -23,29 +23,29 @@ beforeEach(async () => {
 describe("vendor orders", () => {
   it("shows a vendor only their own paid sub-orders, with counts per tab", async () => {
     const o = await paidOrder();
-    const bodija = asUser(o.vendorCookies.bodija);
+    const bodija = asUser(o.vendorTokens.bodija);
     const res = await bodija.get("/vendor/orders");
     expect(res.status).toBe(200);
     expect(res.body.data.counts).toEqual({ todo: 1, active: 0, done: 0, problem: 0 });
     expect(res.body.data.orders).toHaveLength(1);
     expect(res.body.data.orders[0]).toMatchObject({ ref: o.bodijaSub.ref, status: "PAID", items: [expect.objectContaining({ name: "Omosalewa Bean Flour", qty: 1 })], vendorEarningKobo: 1350000 });
 
-    const ojaba = await asUser(o.vendorCookies.ojaba).get("/vendor/orders");
+    const ojaba = await asUser(o.vendorTokens.ojaba).get("/vendor/orders");
     expect(ojaba.body.data.orders.map((x: { ref: string }) => x.ref)).toEqual([o.ojabaSub.ref]);
   });
 
   it("never shows unpaid or expired orders", async () => {
     const o = await paidOrder();
     await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "PENDING_PAYMENT" });
-    expect((await asUser(o.vendorCookies.bodija).get("/vendor/orders")).body.data.orders).toEqual([]);
+    expect((await asUser(o.vendorTokens.bodija).get("/vendor/orders")).body.data.orders).toEqual([]);
     await SubOrder.updateOne({ _id: o.bodijaSub._id }, { status: "CANCELLED" });
     // A cancelled one is a "problem" tab item only if it was paid; here it shows there, never under "todo".
-    expect((await asUser(o.vendorCookies.bodija).get("/vendor/orders?group=todo")).body.data.orders).toEqual([]);
+    expect((await asUser(o.vendorTokens.bodija).get("/vendor/orders?group=todo")).body.data.orders).toEqual([]);
   });
 
   it("gives the vendor what they need to pack, without the customer's phone, email or address", async () => {
     const o = await paidOrder();
-    const res = await asUser(o.vendorCookies.bodija).get("/vendor/orders");
+    const res = await asUser(o.vendorTokens.bodija).get("/vendor/orders");
     const text = JSON.stringify(res.body);
     expect(res.body.data.orders[0].customerFirstName).toBe("CUSTOMER");
     for (const secret of [o.customer.email, "08030000000", "Awolowo", "Old Bodija", "landmark", "lat", "lng", "deliveryFee", "feeKobo", "distance"]) {
@@ -55,7 +55,7 @@ describe("vendor orders", () => {
 
   it("lets a vendor mark their own order ready for pickup, and logs who did it", async () => {
     const o = await paidOrder();
-    const res = await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.bodijaSub._id}/ready`);
+    const res = await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.bodijaSub._id}/ready`);
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe("READY_FOR_PICKUP");
     expect((await reload(o.bodijaSub)).status).toBe("READY_FOR_PICKUP");
@@ -69,14 +69,14 @@ describe("vendor orders", () => {
 
   it("treats another vendor's order as not found, and changes nothing", async () => {
     const o = await paidOrder();
-    const res = await asUser(o.vendorCookies.ojaba).post(`/vendor/orders/${o.bodijaSub._id}/ready`);
+    const res = await asUser(o.vendorTokens.ojaba).post(`/vendor/orders/${o.bodijaSub._id}/ready`);
     expect(res.status).toBe(404);
     expect((await reload(o.bodijaSub)).status).toBe("PAID");
   });
 
   it("refuses to mark an order ready twice, or one that is not paid", async () => {
     const o = await paidOrder();
-    const bodija = asUser(o.vendorCookies.bodija);
+    const bodija = asUser(o.vendorTokens.bodija);
     await bodija.post(`/vendor/orders/${o.bodijaSub._id}/ready`);
     const again = await bodija.post(`/vendor/orders/${o.bodijaSub._id}/ready`);
     expect(again.status).toBe(409);
@@ -84,28 +84,28 @@ describe("vendor orders", () => {
     expect(await StatusLog.countDocuments({ subOrderId: o.bodijaSub._id, to: "READY_FOR_PICKUP" })).toBe(1);
 
     await SubOrder.updateOne({ _id: o.ojabaSub._id }, { status: "PENDING_PAYMENT" });
-    expect((await asUser(o.vendorCookies.ojaba).post(`/vendor/orders/${o.ojabaSub._id}/ready`)).status).toBe(404);
+    expect((await asUser(o.vendorTokens.ojaba).post(`/vendor/orders/${o.ojabaSub._id}/ready`)).status).toBe(404);
   });
 
   it("blocks a suspended vendor from marking orders ready", async () => {
     const o = await paidOrder();
     await Vendor.updateOne({ _id: o.bodija.vendor._id }, { status: "SUSPENDED" });
-    expect((await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.bodijaSub._id}/ready`)).status).toBe(403);
+    expect((await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.bodijaSub._id}/ready`)).status).toBe(403);
   });
 
   it("is for vendors only", async () => {
     const o = await paidOrder();
     expect((await api().get("/api/vendor/orders")).status).toBe(401);
-    expect((await asUser(o.customer.cookie).get("/vendor/orders")).status).toBe(403);
-    expect((await asUser((await createHandler()).cookie).get("/vendor/orders")).status).toBe(403);
-    expect((await asUser((await createAdmin()).cookie).post(`/vendor/orders/${o.bodijaSub._id}/ready`)).status).toBe(403);
+    expect((await asUser(o.customer.bearer).get("/vendor/orders")).status).toBe(403);
+    expect((await asUser((await createHandler()).bearer).get("/vendor/orders")).status).toBe(403);
+    expect((await asUser((await createAdmin()).bearer).post(`/vendor/orders/${o.bodijaSub._id}/ready`)).status).toBe(403);
   });
 
   it("includes the number of orders to pack in the overview, for the sidebar badge", async () => {
     const o = await paidOrder();
-    expect((await asUser(o.vendorCookies.bodija).get("/vendor/overview")).body.data.counts.toPrepare).toBe(1);
-    await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.bodijaSub._id}/ready`);
-    expect((await asUser(o.vendorCookies.bodija).get("/vendor/overview")).body.data.counts.toPrepare).toBe(0);
+    expect((await asUser(o.vendorTokens.bodija).get("/vendor/overview")).body.data.counts.toPrepare).toBe(1);
+    await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.bodijaSub._id}/ready`);
+    expect((await asUser(o.vendorTokens.bodija).get("/vendor/overview")).body.data.counts.toPrepare).toBe(0);
   });
 });
 
@@ -114,7 +114,7 @@ describe("admin assigns handlers", () => {
     const o = await paidOrder();
     const admin = await createAdmin();
     const rider = await createHandler();
-    const res = await asUser(admin.cookie).post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(rider.user._id) });
+    const res = await asUser(admin.bearer).post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(rider.user._id) });
     expect(res.status).toBe(200);
     expect(res.body.data.handler).toMatchObject({ id: String(rider.user._id) });
     expect(String((await reload(o.bodijaSub)).handlerId)).toBe(String(rider.user._id));
@@ -123,7 +123,7 @@ describe("admin assigns handlers", () => {
   it("rejects an id that is not a handler, a deactivated handler, and an unknown order", async () => {
     const o = await paidOrder();
     const admin = await createAdmin();
-    const a = asUser(admin.cookie);
+    const a = asUser(admin.bearer);
     expect((await a.post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(o.customer.user._id) })).status).toBe(422);
     expect((await a.post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(admin.user._id) })).status).toBe(422);
     const rider = await createHandler();
@@ -136,7 +136,7 @@ describe("admin assigns handlers", () => {
 
   it("will not assign before payment or after the parcel is on the road", async () => {
     const o = await paidOrder();
-    const admin = asUser((await createAdmin()).cookie);
+    const admin = asUser((await createAdmin()).bearer);
     const rider = await createHandler();
     const body = { handlerId: String(rider.user._id) };
 
@@ -150,31 +150,31 @@ describe("admin assigns handlers", () => {
 
   it("lets the admin reassign before pickup", async () => {
     const o = await paidOrder();
-    const admin = asUser((await createAdmin()).cookie);
+    const admin = asUser((await createAdmin()).bearer);
     const one = await createHandler("one@example.com");
     const two = await createHandler("two@example.com");
     await admin.post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(one.user._id) });
     await admin.post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(two.user._id) });
     expect(String((await reload(o.bodijaSub)).handlerId)).toBe(String(two.user._id));
-    expect((await asUser(one.cookie).get("/handler/deliveries")).body.data.deliveries).toEqual([]);
-    expect((await asUser(two.cookie).get("/handler/deliveries")).body.data.deliveries).toHaveLength(1);
+    expect((await asUser(one.bearer).get("/handler/deliveries")).body.data.deliveries).toEqual([]);
+    expect((await asUser(two.bearer).get("/handler/deliveries")).body.data.deliveries).toHaveLength(1);
   });
 
   it("is for admins only", async () => {
     const o = await paidOrder();
     const rider = await createHandler();
     const body = { handlerId: String(rider.user._id) };
-    expect((await api().post(`/api/admin/sub-orders/${o.bodijaSub._id}/assign`).set(XRW).send(body)).status).toBe(401);
-    for (const cookie of [o.customer.cookie, o.vendorCookies.bodija, rider.cookie]) {
-      expect((await asUser(cookie).post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, body)).status).toBe(403);
-      expect((await asUser(cookie).get("/admin/deliveries")).status).toBe(403);
+    expect((await api().post(`/api/admin/sub-orders/${o.bodijaSub._id}/assign`).send(body)).status).toBe(401);
+    for (const bearer of [o.customer.bearer, o.vendorTokens.bodija, rider.bearer]) {
+      expect((await asUser(bearer).post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, body)).status).toBe(403);
+      expect((await asUser(bearer).get("/admin/deliveries")).status).toBe(403);
     }
     expect((await reload(o.bodijaSub)).handlerId).toBeUndefined();
   });
 
   it("lists deliveries by group with counts: needs handler, active, problems, done", async () => {
     const o = await paidOrder();
-    const admin = asUser((await createAdmin()).cookie);
+    const admin = asUser((await createAdmin()).bearer);
     const rider = await createHandler();
     const first = await admin.get("/admin/deliveries");
     expect(first.body.data.counts).toMatchObject({ needs_handler: 2, active: 2, problem: 0, done: 0, all: 2 });
@@ -198,8 +198,8 @@ describe("the delivery handler's work", () => {
     const o = await paidOrder();
     const admin = await createAdmin();
     const rider = await createHandler();
-    await asUser(admin.cookie).post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(rider.user._id) });
-    return { ...o, admin, rider, h: asUser(rider.cookie), subId: String(o.bodijaSub._id) };
+    await asUser(admin.bearer).post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(rider.user._id) });
+    return { ...o, admin, rider, h: asUser(rider.bearer), subId: String(o.bodijaSub._id) };
   }
 
   it("sees only deliveries assigned to them", async () => {
@@ -208,7 +208,7 @@ describe("the delivery handler's work", () => {
     const mine = await o.h.get("/handler/deliveries");
     expect(mine.body.data.deliveries.map((d: { id: string }) => d.id)).toEqual([o.subId]);
     expect(mine.body.data.counts).toEqual({ active: 1, done: 0 });
-    expect((await asUser(other.cookie).get("/handler/deliveries")).body.data.deliveries).toEqual([]);
+    expect((await asUser(other.bearer).get("/handler/deliveries")).body.data.deliveries).toEqual([]);
     // The other vendor's unassigned sub-order is invisible and untouchable too.
     expect((await o.h.get(`/handler/deliveries/${o.ojabaSub._id}`)).status).toBe(404);
     expect((await o.h.post(`/handler/deliveries/${o.ojabaSub._id}/status`, { to: "PICKED_UP" })).status).toBe(404);
@@ -216,7 +216,7 @@ describe("the delivery handler's work", () => {
 
   it("treats another handler's delivery as not found, for reading and for changing", async () => {
     const o = await assigned();
-    const other = asUser((await createHandler("other@example.com")).cookie);
+    const other = asUser((await createHandler("other@example.com")).bearer);
     expect((await other.get(`/handler/deliveries/${o.subId}`)).status).toBe(404);
     expect((await other.post(`/handler/deliveries/${o.subId}/status`, { to: "PICKED_UP" })).status).toBe(404);
     expect((await reload(o.bodijaSub)).status).toBe("PAID");
@@ -248,7 +248,7 @@ describe("the delivery handler's work", () => {
 
   it("walks the happy path: picked up, then delivered, with deliveredAt and a log for each step", async () => {
     const o = await assigned();
-    await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.subId}/ready`);
+    await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.subId}/ready`);
     expect((await o.h.get(`/handler/deliveries/${o.subId}`)).body.data.nextActions).toEqual(["PICKED_UP"]);
 
     const pick = await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "PICKED_UP" });
@@ -274,7 +274,7 @@ describe("the delivery handler's work", () => {
 
   it("cannot deliver without picking up, or change a delivered order", async () => {
     const o = await assigned();
-    await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.subId}/ready`);
+    await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.subId}/ready`);
     expect((await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "DELIVERED" })).status).toBe(409);
     await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "PICKED_UP" });
     await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "DELIVERED" });
@@ -286,7 +286,7 @@ describe("the delivery handler's work", () => {
 
   it("must give a reason to report a failed delivery, and the reason is recorded", async () => {
     const o = await assigned();
-    await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.subId}/ready`);
+    await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.subId}/ready`);
     await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "PICKED_UP" });
     expect((await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "FAILED_DELIVERY" })).status).toBe(422);
     expect((await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "FAILED_DELIVERY", reason: "x" })).status).toBe(422);
@@ -307,7 +307,7 @@ describe("the delivery handler's work", () => {
 
   it("lets only one of two simultaneous taps succeed", async () => {
     const o = await assigned();
-    await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.subId}/ready`);
+    await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.subId}/ready`);
     const results = await Promise.all([1, 2, 3].map(() => o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "PICKED_UP" })));
     expect(results.map((r) => r.status).sort()).toEqual([200, 409, 409]);
     expect(await StatusLog.countDocuments({ subOrderId: o.bodijaSub._id, to: "PICKED_UP" })).toBe(1);
@@ -315,7 +315,7 @@ describe("the delivery handler's work", () => {
 
   it("moves finished deliveries to the done tab", async () => {
     const o = await assigned();
-    await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.subId}/ready`);
+    await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.subId}/ready`);
     await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "PICKED_UP" });
     await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "DELIVERED" });
     expect((await o.h.get("/handler/deliveries")).body.data.counts).toEqual({ active: 0, done: 1 });
@@ -325,18 +325,18 @@ describe("the delivery handler's work", () => {
   it("is for handlers only", async () => {
     const o = await assigned();
     expect((await api().get("/api/handler/deliveries")).status).toBe(401);
-    for (const cookie of [o.customer.cookie, o.vendorCookies.bodija, o.admin.cookie]) {
-      expect((await asUser(cookie).get("/handler/deliveries")).status).toBe(403);
-      expect((await asUser(cookie).get(`/handler/deliveries/${o.subId}`)).status).toBe(403);
-      expect((await asUser(cookie).post(`/handler/deliveries/${o.subId}/status`, { to: "PICKED_UP" })).status).toBe(403);
+    for (const bearer of [o.customer.bearer, o.vendorTokens.bodija, o.admin.bearer]) {
+      expect((await asUser(bearer).get("/handler/deliveries")).status).toBe(403);
+      expect((await asUser(bearer).get(`/handler/deliveries/${o.subId}`)).status).toBe(403);
+      expect((await asUser(bearer).post(`/handler/deliveries/${o.subId}/status`, { to: "PICKED_UP" })).status).toBe(403);
     }
   });
 
   it("shows the customer the progress on their order page", async () => {
     const o = await assigned();
-    await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.subId}/ready`);
+    await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.subId}/ready`);
     await o.h.post(`/handler/deliveries/${o.subId}/status`, { to: "PICKED_UP" });
-    const res = await asUser(o.customer.cookie).get(`/orders/${o.data.orderId}`);
+    const res = await asUser(o.customer.bearer).get(`/orders/${o.data.orderId}`);
     const sub = res.body.data.subOrders.find((s: { ref: string }) => s.ref === o.bodijaSub.ref);
     expect(sub.status).toBe("PICKED_UP");
     expect(sub.timeline.map((t: { status: string }) => t.status)).toEqual(["PENDING_PAYMENT", "PAID", "READY_FOR_PICKUP", "PICKED_UP"]);
@@ -347,7 +347,7 @@ describe("admin cancel and retry", () => {
   async function ready() {
     const o = await paidOrder();
     const admin = await createAdmin();
-    return { ...o, a: asUser(admin.cookie), subId: String(o.bodijaSub._id) };
+    return { ...o, a: asUser(admin.bearer), subId: String(o.bodijaSub._id) };
   }
 
   it("cancels a paid sub-order: stock goes back, the order is flagged for a refund, and it is logged", async () => {
@@ -389,8 +389,8 @@ describe("admin cancel and retry", () => {
   it("only allows cancel and retry, and not by anyone else", async () => {
     const o = await ready();
     for (const to of ["DELIVERED", "READY_FOR_PICKUP", "PAID", "COMPLETED"]) expect((await o.a.post(`/admin/sub-orders/${o.subId}/status`, { to })).status, to).toBe(422);
-    expect((await asUser(o.vendorCookies.bodija).post(`/admin/sub-orders/${o.subId}/status`, { to: "CANCELLED" })).status).toBe(403);
-    expect((await asUser(o.customer.cookie).post(`/admin/sub-orders/${o.subId}/status`, { to: "CANCELLED" })).status).toBe(403);
+    expect((await asUser(o.vendorTokens.bodija).post(`/admin/sub-orders/${o.subId}/status`, { to: "CANCELLED" })).status).toBe(403);
+    expect((await asUser(o.customer.bearer).post(`/admin/sub-orders/${o.subId}/status`, { to: "CANCELLED" })).status).toBe(403);
     expect((await reload(o.bodijaSub)).status).toBe("PAID");
   });
 });
@@ -400,24 +400,24 @@ describe("staff accounts", () => {
 
   it("creates a delivery handler who can sign in and lands on /handler", async () => {
     const admin = await createAdmin();
-    const res = await asUser(admin.cookie).post("/admin/staff", body());
+    const res = await asUser(admin.bearer).post("/admin/staff", body());
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ role: "HANDLER", email: "femi@example.com", isActive: true, activeDeliveries: 0 });
     expect(JSON.stringify(res.body)).not.toMatch(/passwordHash/);
     expect(String((await User.findOne({ email: "femi@example.com" }))!.createdBy)).toBe(String(admin.user._id));
 
-    const login = await api().post("/api/auth/login").set(XRW).send({ email: "femi@example.com", password: PASSWORD });
+    const login = await api().post("/api/auth/login").send({ email: "femi@example.com", password: PASSWORD });
     expect(login.body.data).toMatchObject({ home: "/handler", user: { role: "HANDLER" } });
   });
 
   it("can only ever create handlers: a role in the request is rejected", async () => {
-    const admin = asUser((await createAdmin()).cookie);
+    const admin = asUser((await createAdmin()).bearer);
     expect((await admin.post("/admin/staff", body({ role: "ADMIN" }))).status).toBe(422);
     expect(await User.countDocuments({ email: "femi@example.com" })).toBe(0);
   });
 
   it("rejects duplicates and weak input", async () => {
-    const admin = asUser((await createAdmin()).cookie);
+    const admin = asUser((await createAdmin()).bearer);
     expect((await admin.post("/admin/staff", body())).status).toBe(201);
     expect((await admin.post("/admin/staff", body())).status).toBe(409);
     expect((await admin.post("/admin/staff", body({ email: "b@example.com", password: "short" }))).status).toBe(422);
@@ -426,7 +426,7 @@ describe("staff accounts", () => {
 
   it("lists handlers with their current workload", async () => {
     const o = await paidOrder();
-    const admin = asUser((await createAdmin()).cookie);
+    const admin = asUser((await createAdmin()).bearer);
     const rider = await createHandler();
     await admin.post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(rider.user._id) });
     await admin.post(`/admin/sub-orders/${o.ojabaSub._id}/assign`, { handlerId: String(rider.user._id) });
@@ -435,22 +435,22 @@ describe("staff accounts", () => {
   });
 
   it("deactivating a handler stops new logins and ends the current session at once", async () => {
-    const admin = asUser((await createAdmin()).cookie);
+    const admin = asUser((await createAdmin()).bearer);
     const rider = await createHandler();
-    expect((await asUser(rider.cookie).get("/handler/deliveries")).status).toBe(200);
+    expect((await asUser(rider.bearer).get("/handler/deliveries")).status).toBe(200);
     const res = await admin.patch(`/admin/staff/${rider.user._id}`, { isActive: false });
     expect(res.body.data.isActive).toBe(false);
-    expect((await asUser(rider.cookie).get("/handler/deliveries")).status).toBe(401);
-    expect((await api().post("/api/auth/login").set(XRW).send({ email: rider.email, password: PASSWORD })).status).toBe(403);
+    expect((await asUser(rider.bearer).get("/handler/deliveries")).status).toBe(401);
+    expect((await api().post("/api/auth/login").send({ email: rider.email, password: PASSWORD })).status).toBe(403);
     await admin.patch(`/admin/staff/${rider.user._id}`, { isActive: true });
-    expect((await api().post("/api/auth/login").set(XRW).send({ email: rider.email, password: PASSWORD })).status).toBe(200);
+    expect((await api().post("/api/auth/login").send({ email: rider.email, password: PASSWORD })).status).toBe(200);
   });
 
   it("cannot be used to change a customer, vendor or another admin", async () => {
     const admin = await createAdmin();
     const customer = await createUser("CUSTOMER", "c@example.com");
     for (const id of [customer._id, admin.user._id]) {
-      expect((await asUser(admin.cookie).patch(`/admin/staff/${id}`, { isActive: false })).status).toBe(404);
+      expect((await asUser(admin.bearer).patch(`/admin/staff/${id}`, { isActive: false })).status).toBe(404);
     }
     expect((await User.findById(customer._id))!.isActive).toBe(true);
     expect((await User.findById(admin.user._id))!.isActive).toBe(true);
@@ -458,11 +458,11 @@ describe("staff accounts", () => {
 
   it("is for admins only", async () => {
     const o = await paidOrder();
-    for (const cookie of [o.customer.cookie, o.vendorCookies.bodija, (await createHandler()).cookie]) {
-      expect((await asUser(cookie).post("/admin/staff", body())).status).toBe(403);
-      expect((await asUser(cookie).get("/admin/staff")).status).toBe(403);
+    for (const bearer of [o.customer.bearer, o.vendorTokens.bodija, (await createHandler()).bearer]) {
+      expect((await asUser(bearer).post("/admin/staff", body())).status).toBe(403);
+      expect((await asUser(bearer).get("/admin/staff")).status).toBe(403);
     }
-    expect((await api().post("/api/admin/staff").set(XRW).send(body())).status).toBe(401);
+    expect((await api().post("/api/admin/staff").send(body())).status).toBe(401);
   });
 });
 

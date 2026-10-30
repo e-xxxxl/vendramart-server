@@ -42,7 +42,7 @@ const subOrderSchema = new Schema({
         feeKobo: kobo,
     },
     paidAt: Date,
-    deliveredAt: Date, // starts the 24-hour earnings hold (Phase 6)
+    deliveredAt: Date, // starts the earnings hold (4 working days) (Phase 6)
     completedAt: Date,
     // The payout this sub-order's earnings are locked in. Unset when free. Set atomically when a payout is requested.
     payoutId: { type: Schema.Types.ObjectId, ref: "Payout", index: true },

@@ -21,8 +21,10 @@ export function signToken(userId: string, role: Role) {
   });
 }
 
+/** The signed-in user's token arrives as `Authorization: Bearer <token>`. There is no cookie. */
 function readToken(req: Parameters<RequestHandler>[0]): string | undefined {
-  return req.cookies?.[env.COOKIE_NAME];
+  const match = /^Bearer\s+(\S+)$/i.exec(req.header("authorization") ?? "");
+  return match?.[1];
 }
 
 async function loadUser(req: Parameters<RequestHandler>[0]): Promise<UserDoc | null> {

@@ -3,7 +3,7 @@ import { setPaymentGateway } from "../src/services/payments/index.js";
 import { computeSignature } from "../src/services/payments/signature.js";
 import { Order } from "../src/models/Order.js";
 import { SubOrder } from "../src/models/SubOrder.js";
-import { IBADAN, OJA_BA, XRW, api, createCustomer, createProduct, createVendor, fakeDistance } from "./helpers.js";
+import { IBADAN, OJA_BA, api, createCustomer, createProduct, createVendor, fakeDistance } from "./helpers.js";
 
 export const WEBHOOK_SECRET = "test-paystack-secret";
 
@@ -72,11 +72,11 @@ export async function twoVendorScenario() {
   return { bodija, ojaba, flour, oil, customer, items };
 }
 
-export const placeOrderReq = (cookie: string, body: unknown) => api().post("/api/checkout").set(XRW).set("Cookie", cookie).send(body as object);
+export const placeOrderReq = (bearer: string, body: unknown) => api().post("/api/checkout").set("Authorization", bearer).send(body as object);
 
 /** Places an order through the real endpoint and returns its API data plus the stored documents. */
-export async function placeOrder(customer: { cookie: string; address: { _id: unknown } }, items: { productId: string; qty: number }[]) {
-  const res = await placeOrderReq(customer.cookie, { items, addressId: String(customer.address._id) });
+export async function placeOrder(customer: { bearer: string; address: { _id: unknown } }, items: { productId: string; qty: number }[]) {
+  const res = await placeOrderReq(customer.bearer, { items, addressId: String(customer.address._id) });
   if (res.status !== 201) throw new Error(`placeOrder failed: ${res.status} ${JSON.stringify(res.body)}`);
   const data = res.body.data as { orderId: string; orderNumber: string; reference: string; totalKobo: number; authorizationUrl: string; expiresAt: string };
   const order = (await Order.findById(data.orderId))!;

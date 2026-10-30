@@ -1,5 +1,4 @@
-import { Router, type Response } from "express";
-import { env, isProd } from "../../config/env.js";
+import { Router } from "express";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { created, ok } from "../../utils/respond.js";
 import { validate } from "../../middleware/validate.js";
@@ -14,17 +13,9 @@ import { notifyVendorApplied, notifyWelcome } from "../accounts/accountEvents.js
 
 export const authRouter = Router();
 
-function setSessionCookie(res: Response, user: UserDoc) {
-  res.cookie(env.COOKIE_NAME, signToken(String(user._id), user.role), {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: env.COOKIE_SAMESITE,
-    path: "/",
-    maxAge: env.JWT_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000,
-  });
-}
-
+/** Who the user is and where to send them. Signing in or registering also returns the JWT, which the website keeps and sends with every request. */
 const sessionPayload = (user: UserDoc) => ({ user: publicUser(user), home: ROLE_HOME[user.role] });
+const signedInPayload = (user: UserDoc) => ({ token: signToken(String(user._id), user.role), ...sessionPayload(user) });
 
 authRouter.post(
   "/register",
@@ -32,9 +23,8 @@ authRouter.post(
   validate({ body: registerCustomerSchema }),
   asyncHandler(async (req, res) => {
     const user = await registerCustomer(req.validated.body);
-    setSessionCookie(res, user);
     void notifyWelcome(user); // never delays or breaks the sign-up
-    created(res, sessionPayload(user));
+    created(res, signedInPayload(user));
   }),
 );
 
@@ -45,9 +35,8 @@ authRouter.post(
   validate({ body: registerVendorSchema }),
   asyncHandler(async (req, res) => {
     const { user, vendor } = await registerVendor(req.validated.body);
-    setSessionCookie(res, user);
     void notifyVendorApplied(user, vendor);
-    created(res, { ...sessionPayload(user), vendor: { id: String(vendor._id), slug: vendor.slug, status: vendor.status } });
+    created(res, { ...signedInPayload(user), vendor: { id: String(vendor._id), slug: vendor.slug, status: vendor.status } });
   }),
 );
 
@@ -57,15 +46,9 @@ authRouter.post(
   validate({ body: loginSchema }),
   asyncHandler(async (req, res) => {
     const user = await authenticate(req.validated.body);
-    setSessionCookie(res, user);
-    ok(res, sessionPayload(user));
+    ok(res, signedInPayload(user));
   }),
 );
-
-authRouter.post("/logout", (_req, res) => {
-  res.clearCookie(env.COOKIE_NAME, { httpOnly: true, secure: isProd, sameSite: env.COOKIE_SAMESITE, path: "/" });
-  ok(res, { loggedOut: true });
-});
 
 authRouter.get(
   "/me",

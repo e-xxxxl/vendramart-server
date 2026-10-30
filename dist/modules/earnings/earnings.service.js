@@ -10,7 +10,7 @@ export async function declinedPayoutIds(vendorId) {
     return (await Payout.find({ vendorId, status: "DECLINED" }).select("_id")).map((p) => p._id);
 }
 /**
- * THE definition of "available to withdraw", as a database filter: delivered, 24 hours passed, and not locked in a
+ * THE definition of "available to withdraw", as a database filter: delivered, the 4 working day hold passed, and not locked in a
  * live payout. Both the payout request and the earnings page use it. It is the query form of
  * `earningState(...) === "AVAILABLE"` (a test keeps the two identical), and it looks only at timestamps and the
  * payout link: no job has to have run.
@@ -80,7 +80,6 @@ export function toRows(subs, results) {
             earnKobo: i.vendorEarningKobo,
             state: r.state,
             unlocksAt: r.unlocksAt ?? null,
-            hoursLeft: r.hoursLeft ?? null,
         }));
     });
 }

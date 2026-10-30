@@ -11,7 +11,7 @@ export class DevGateway {
     }
     async initialize({ email, amountKobo, reference }) {
         this.transactions.set(reference, { reference, email, amountKobo, status: "pending" });
-        return { authorizationUrl: `${this.clientOrigin}/dev/paystack?reference=${encodeURIComponent(reference)}` };
+        return { authorizationUrl: `${this.clientOrigin}/dev/paystack/?reference=${encodeURIComponent(reference)}` };
     }
     async verify(reference) {
         const tx = this.transactions.get(reference);

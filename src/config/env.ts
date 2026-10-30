@@ -39,12 +39,8 @@ const schema = z.object({
     .string()
     .default("http://localhost:3000")
     .refine(isOriginList, "CLIENT_ORIGIN must be one or more website addresses like https://www.example.com (no path), separated by commas"),
-  // "lax" when the website and the API are on the same site (www.example.com and api.example.com). "none" only if they are
-  // on different sites (for example the API on onrender.com); it needs HTTPS and some browsers block such cookies.
-  COOKIE_SAMESITE: z.enum(["lax", "strict", "none"]).default("lax"),
   JWT_SECRET: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
   JWT_EXPIRES_IN_DAYS: z.coerce.number().int().positive().default(7),
-  COOKIE_NAME: z.string().min(1).default("vm_token"),
   // Only for development: where a browser reaches this API, used in the addresses of locally stored uploads.
   API_PUBLIC_URL: optionalString,
 

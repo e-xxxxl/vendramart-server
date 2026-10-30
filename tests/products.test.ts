@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Product } from "../src/models/Product.js";
 import { Vendor } from "../src/models/Vendor.js";
-import { api, clearDb, createProduct, createVendor, loginCookie, memoryStorage, pngBytes, productBody, seedReferenceData, startDb, stopDb, XRW } from "./helpers.js";
+import { api, clearDb, createProduct, createVendor, loginToken, memoryStorage, pngBytes, productBody, seedReferenceData, startDb, stopDb } from "./helpers.js";
 
 beforeAll(startDb);
 afterAll(stopDb);
@@ -13,14 +13,14 @@ beforeEach(async () => {
 
 async function asVendor(opts: Parameters<typeof createVendor>[0] = {}) {
   const v = await createVendor(opts);
-  const cookie = await loginCookie(v.email);
-  const post = (path: string, body?: unknown) => api().post(`/api/vendor${path}`).set(XRW).set("Cookie", cookie).send(body as object);
-  const patch = (path: string, body?: unknown) => api().patch(`/api/vendor${path}`).set(XRW).set("Cookie", cookie).send(body as object);
-  const get = (path: string) => api().get(`/api/vendor${path}`).set("Cookie", cookie);
-  const del = (path: string) => api().delete(`/api/vendor${path}`).set(XRW).set("Cookie", cookie);
+  const bearer = await loginToken(v.email);
+  const post = (path: string, body?: unknown) => api().post(`/api/vendor${path}`).set("Authorization", bearer).send(body as object);
+  const patch = (path: string, body?: unknown) => api().patch(`/api/vendor${path}`).set("Authorization", bearer).send(body as object);
+  const get = (path: string) => api().get(`/api/vendor${path}`).set("Authorization", bearer);
+  const del = (path: string) => api().delete(`/api/vendor${path}`).set("Authorization", bearer);
   const upload = (buf: Buffer, filename = "photo.png") =>
-    api().post("/api/vendor/uploads/image").set(XRW).set("Cookie", cookie).attach("file", buf, filename);
-  return { ...v, cookie, post, patch, get, del, upload };
+    api().post("/api/vendor/uploads/image").set("Authorization", bearer).attach("file", buf, filename);
+  return { ...v, bearer, post, patch, get, del, upload };
 }
 
 describe("vendor product CRUD", () => {
@@ -158,12 +158,12 @@ describe("image upload", () => {
 
   it("rejects a request with no file", async () => {
     const v = await asVendor();
-    const res = await api().post("/api/vendor/uploads/image").set(XRW).set("Cookie", v.cookie);
+    const res = await api().post("/api/vendor/uploads/image").set("Authorization", v.bearer);
     expect(res.status).toBe(422);
   });
 
   it("requires a vendor login", async () => {
-    const res = await api().post("/api/vendor/uploads/image").set(XRW).attach("file", pngBytes(), "a.png");
+    const res = await api().post("/api/vendor/uploads/image").attach("file", pngBytes(), "a.png");
     expect(res.status).toBe(401);
   });
 

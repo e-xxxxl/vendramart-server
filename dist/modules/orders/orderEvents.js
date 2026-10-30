@@ -1,6 +1,7 @@
 import { User } from "../../models/User.js";
 import { Vendor } from "../../models/Vendor.js";
 import { getNotifier } from "../../services/notifications/index.js";
+import { deliveryPage, orderPage } from "../../utils/webLinks.js";
 const toRecipient = (u) => ({ id: String(u._id), name: u.name, email: u.email });
 const send = (to, message) => (to.length ? getNotifier().notify(to.map(toRecipient), message) : Promise.resolve());
 async function admins() {
@@ -37,7 +38,7 @@ export function notifyOrderPaid(order, paidSubs) {
                 kind: "ORDER_PAID",
                 title: "Payment received",
                 body: `Order ${order.orderNumber} is confirmed. ${paidSubs.length === 1 ? "The vendor is" : `${paidSubs.length} vendors are`} getting your items ready.`,
-                link: `/orders/${order._id}`,
+                link: orderPage(order._id),
             });
         }
         for (const sub of paidSubs) {
@@ -67,12 +68,12 @@ export function notifySubOrderEvent(sub, event, opts = {}) {
         const { customer, vendor, vendorUser, handler } = await parties(sub);
         const notSelf = (u) => (u && String(u._id) !== opts.actorId ? [u] : []);
         const from = vendor?.businessName ?? "the vendor";
-        const orderLink = `/orders/${sub.orderId}`;
+        const orderLink = orderPage(sub.orderId);
         switch (event) {
             case "READY_FOR_PICKUP":
                 await send(notSelf(customer), { kind: "READY_FOR_PICKUP", title: "Your items are ready", body: `${from} has packed ${sub.ref} and it is waiting for a rider.`, link: orderLink });
                 if (handler) {
-                    await send(notSelf(handler), { kind: "READY_FOR_PICKUP", title: `${sub.ref} is ready to collect`, body: `Pick up from ${from}: ${sub.delivery.pickup.line}.`, link: `/handler/${sub._id}` });
+                    await send(notSelf(handler), { kind: "READY_FOR_PICKUP", title: `${sub.ref} is ready to collect`, body: `Pick up from ${from}: ${sub.delivery.pickup.line}.`, link: deliveryPage(sub._id) });
                 }
                 else {
                     await send(await admins(), { kind: "READY_UNASSIGNED", title: `${sub.ref} is ready but has no handler`, body: `${from} has it packed. Assign a delivery handler.`, link: "/admin/deliveries" });
@@ -83,7 +84,7 @@ export function notifySubOrderEvent(sub, event, opts = {}) {
                     kind: "DELIVERY_ASSIGNED",
                     title: `New delivery ${sub.ref}`,
                     body: `Collect from ${from} (${sub.delivery.pickup.line}) and deliver to ${sub.delivery.dropoff.line}.`,
-                    link: `/handler/${sub._id}`,
+                    link: deliveryPage(sub._id),
                 });
                 await send(notSelf(vendorUser), { kind: "HANDLER_ASSIGNED", title: `Rider assigned to ${sub.ref}`, body: "A delivery handler will collect this order when it is ready.", link: "/vendor/orders" });
                 break;
@@ -93,7 +94,7 @@ export function notifySubOrderEvent(sub, event, opts = {}) {
                 break;
             case "DELIVERED":
                 await send(notSelf(customer), { kind: "DELIVERED", title: "Delivered", body: `${sub.ref} from ${from} has been delivered. Enjoy!`, link: orderLink });
-                await send(notSelf(vendorUser), { kind: "DELIVERED", title: `${sub.ref} delivered`, body: "Your earnings for this order unlock 24 hours after delivery.", link: "/vendor/earnings" });
+                await send(notSelf(vendorUser), { kind: "DELIVERED", title: `${sub.ref} delivered`, body: "Your earnings for this order unlock 4 working days after delivery.", link: "/vendor/earnings" });
                 break;
             case "FAILED_DELIVERY":
                 await send(notSelf(customer), { kind: "FAILED_DELIVERY", title: "We could not deliver your order", body: `${sub.ref}: ${opts.reason ?? "the delivery was not completed"}. We will contact you.`, link: orderLink });

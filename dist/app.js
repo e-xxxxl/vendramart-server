@@ -2,12 +2,13 @@ import express from "express";
 import helmet from "helmet";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import { env } from "./config/env.js";
+import { clientOrigins } from "./config/env.js";
 import { csrfGuard } from "./middleware/csrfGuard.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { adminRouter, customerRouter, handlerRouter } from "./modules/roleShells.js";
 import { vendorRouter } from "./modules/vendors/vendor.routes.js";
+import { bannersRouter } from "./modules/banners/banners.routes.js";
 import { referenceRouter } from "./modules/cities/cities.routes.js";
 import { catalogRouter } from "./modules/products/catalog.routes.js";
 import { cartRouter, checkoutRouter } from "./modules/checkout/checkout.routes.js";
@@ -21,11 +22,13 @@ import { mountPaystackWebhook } from "./modules/orders/webhook.routes.js";
 import { ok } from "./utils/respond.js";
 export function createApp() {
     const app = express();
-    // The client proxies /api to this server, so the real IP arrives in X-Forwarded-For.
+    // This API sits behind the host's proxy (Render, a load balancer), so the real IP arrives in X-Forwarded-For.
     app.set("trust proxy", 1);
     app.disable("x-powered-by");
-    app.use(helmet());
-    app.use(cors({ origin: env.CLIENT_ORIGIN, credentials: true }));
+    // The website is on another address, and shows images this API serves in development, so they must be loadable cross-origin.
+    app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+    // The website is a static site on its own address, so the browser calls this API cross-origin with its sign-in cookie.
+    app.use(cors({ origin: clientOrigins, credentials: true, maxAge: 86400 }));
     // The Paystack webhook (Phase 4) needs the raw body for signature checks, so it is mounted
     // BEFORE express.json() with express.raw(). Everything else gets parsed JSON.
     mountPaystackWebhook(app);
@@ -39,6 +42,7 @@ export function createApp() {
     api.use(csrfGuard);
     api.get("/health", (_req, res) => ok(res, { status: "ok" }));
     api.use(referenceRouter);
+    api.use(bannersRouter);
     api.use(catalogRouter);
     api.use("/cart", cartRouter);
     api.use("/checkout", checkoutRouter);

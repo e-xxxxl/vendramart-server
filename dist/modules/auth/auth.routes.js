@@ -10,12 +10,13 @@ import { loginSchema, registerCustomerSchema } from "./auth.schemas.js";
 import { ROLE_HOME, authenticate, registerCustomer } from "./auth.service.js";
 import { registerVendorSchema } from "../vendors/vendor.schemas.js";
 import { registerVendor } from "../vendors/vendor.service.js";
+import { notifyVendorApplied, notifyWelcome } from "../accounts/accountEvents.js";
 export const authRouter = Router();
 function setSessionCookie(res, user) {
     res.cookie(env.COOKIE_NAME, signToken(String(user._id), user.role), {
         httpOnly: true,
         secure: isProd,
-        sameSite: "lax",
+        sameSite: env.COOKIE_SAMESITE,
         path: "/",
         maxAge: env.JWT_EXPIRES_IN_DAYS * 24 * 60 * 60 * 1000,
     });
@@ -24,12 +25,14 @@ const sessionPayload = (user) => ({ user: publicUser(user), home: ROLE_HOME[user
 authRouter.post("/register", authLimiter, validate({ body: registerCustomerSchema }), asyncHandler(async (req, res) => {
     const user = await registerCustomer(req.validated.body);
     setSessionCookie(res, user);
+    void notifyWelcome(user); // never delays or breaks the sign-up
     created(res, sessionPayload(user));
 }));
 // Vendors have their own onboarding (business, pickup pin, bank). They start PENDING until the admin approves.
 authRouter.post("/vendor/register", authLimiter, validate({ body: registerVendorSchema }), asyncHandler(async (req, res) => {
     const { user, vendor } = await registerVendor(req.validated.body);
     setSessionCookie(res, user);
+    void notifyVendorApplied(user, vendor);
     created(res, { ...sessionPayload(user), vendor: { id: String(vendor._id), slug: vendor.slug, status: vendor.status } });
 }));
 authRouter.post("/login", authLimiter, validate({ body: loginSchema }), asyncHandler(async (req, res) => {
@@ -38,7 +41,7 @@ authRouter.post("/login", authLimiter, validate({ body: loginSchema }), asyncHan
     ok(res, sessionPayload(user));
 }));
 authRouter.post("/logout", (_req, res) => {
-    res.clearCookie(env.COOKIE_NAME, { httpOnly: true, secure: isProd, sameSite: "lax", path: "/" });
+    res.clearCookie(env.COOKIE_NAME, { httpOnly: true, secure: isProd, sameSite: env.COOKIE_SAMESITE, path: "/" });
     ok(res, { loggedOut: true });
 });
 authRouter.get("/me", requireAuth, asyncHandler(async (req, res) => {

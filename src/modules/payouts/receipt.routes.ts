@@ -4,6 +4,7 @@ import { requireAuth } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import { AppError } from "../../utils/AppError.js";
+import { ok } from "../../utils/respond.js";
 import { objectId } from "../../utils/zodCommon.js";
 import { Payout } from "../../models/Payout.js";
 import { Vendor } from "../../models/Vendor.js";
@@ -28,7 +29,7 @@ receiptRouter.get(
     }
 
     const file = await getPrivateStorage().open(payout.receipt!.publicId!, payout.receipt!.mime ?? "application/octet-stream", payout.receipt!.resourceType ?? undefined);
-    if (file.kind === "redirect") return res.redirect(302, file.url);
+    if (file.kind === "redirect") return ok(res, { url: file.url });
 
     res.setHeader("Content-Type", file.mime);
     res.setHeader("Content-Disposition", `inline; filename="${payout.number}-receipt.${file.mime === "application/pdf" ? "pdf" : file.mime.split("/")[1]}"`);

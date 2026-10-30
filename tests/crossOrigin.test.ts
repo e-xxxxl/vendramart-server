@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { clientOrigins, isOriginList, primaryClientOrigin, splitOrigins } from "../src/config/env.js";
 import { adminPayoutPage, deliveryPage, orderPage } from "../src/utils/webLinks.js";
-import { PASSWORD, XRW, api, clearDb, createUser, seedReferenceData, startDb, stopDb } from "./helpers.js";
+import { PASSWORD, api, clearDb, createUser, seedReferenceData, startDb, stopDb } from "./helpers.js";
 
 const WEBSITE = "http://localhost:3000"; // CLIENT_ORIGIN in tests/setupEnv.ts
 
@@ -13,16 +13,17 @@ beforeEach(async () => {
 });
 
 describe("the website calling the API from its own address", () => {
-  it("answers the browser's pre-flight check for the website, allowing the cookie and the custom header", async () => {
+  it("answers the browser's pre-flight check for the website, allowing the Authorization header", async () => {
     const res = await api()
       .options("/api/auth/login")
       .set("Origin", WEBSITE)
       .set("Access-Control-Request-Method", "POST")
-      .set("Access-Control-Request-Headers", "content-type,x-requested-with");
+      .set("Access-Control-Request-Headers", "content-type,authorization");
     expect(res.status).toBe(204);
     expect(res.headers["access-control-allow-origin"]).toBe(WEBSITE);
-    expect(res.headers["access-control-allow-credentials"]).toBe("true");
-    expect(res.headers["access-control-allow-headers"]).toMatch(/x-requested-with/i);
+    // No cookies are used, so the browser is never told to send or accept credentials.
+    expect(res.headers["access-control-allow-credentials"]).toBeUndefined();
+    expect(res.headers["access-control-allow-headers"]).toMatch(/authorization/i);
     expect(res.headers["access-control-max-age"]).toBe("86400");
   });
 
@@ -48,23 +49,21 @@ describe("the website calling the API from its own address", () => {
     expect(res.headers["cross-origin-resource-policy"]).toBe("cross-origin");
   });
 
-  it("still refuses a change that does not carry the custom header, even from the website", async () => {
+  it("signs in from the website with a token in the answer, and never sets a cookie", async () => {
     await createUser("CUSTOMER", "tolu@example.com");
-    const res = await api().post("/api/auth/login").set("Origin", WEBSITE).send({ email: "tolu@example.com", password: PASSWORD });
-    expect(res.status).toBe(403);
+    const login = await api().post("/api/auth/login").set("Origin", WEBSITE).send({ email: "tolu@example.com", password: PASSWORD });
+    expect(login.status).toBe(200);
+    expect(login.body.data.token).toEqual(expect.any(String));
+    expect(login.headers["set-cookie"]).toBeUndefined();
+    expect(login.headers["access-control-allow-origin"]).toBe(WEBSITE);
   });
 
-  it("sets the sign-in cookie as http-only and same-site (lax by default), and clears it the same way on sign-out", async () => {
+  it("the signed-in website can call the API with its token from another address", async () => {
     await createUser("CUSTOMER", "tolu@example.com");
-    const login = await api().post("/api/auth/login").set(XRW).set("Origin", WEBSITE).send({ email: "tolu@example.com", password: PASSWORD });
-    expect(login.status).toBe(200);
-    const cookie = String(login.headers["set-cookie"]);
-    expect(cookie).toMatch(/vm_token=/);
-    expect(cookie).toMatch(/HttpOnly/i);
-    expect(cookie).toMatch(/SameSite=Lax/i);
-
-    const out = await api().post("/api/auth/logout").set(XRW).set("Origin", WEBSITE).set("Cookie", String(login.headers["set-cookie"])).send({});
-    expect(String(out.headers["set-cookie"])).toMatch(/SameSite=Lax/i);
+    const login = await api().post("/api/auth/login").send({ email: "tolu@example.com", password: PASSWORD });
+    const me = await api().get("/api/auth/me").set("Origin", WEBSITE).set("Authorization", `Bearer ${login.body.data.token}`);
+    expect(me.status).toBe(200);
+    expect(me.headers["access-control-allow-origin"]).toBe(WEBSITE);
   });
 });
 

@@ -15,6 +15,10 @@ const pickup = z.object({
     placeId: z.string().trim().max(300).optional(),
     ...latLng,
 });
+export const nin = z
+    .string()
+    .trim()
+    .regex(/^[0-9]{11}$/, "NIN must be exactly 11 digits");
 export const registerVendorSchema = z.object({
     ownerName: text(2, 120, "Enter the owner's full name"),
     email,
@@ -32,6 +36,7 @@ export const registerVendorSchema = z.object({
         .transform((v) => (v ? v : undefined)),
     pickup,
     bank,
+    nin,
 });
 export const updateProfileSchema = z
     .object({
@@ -49,5 +54,6 @@ export const updateProfileSchema = z
     .partial()
     .strict();
 export const updateBankSchema = bank;
+export const updateNinSchema = z.object({ nin }).strict();
 export const updatePickupSchema = pickup;
 export const suspendSchema = z.object({ reason: text(3, 300, "Give a short reason") });

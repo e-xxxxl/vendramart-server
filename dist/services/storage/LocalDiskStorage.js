@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { env } from "../../config/env.js";
 import { detectImageKind } from "../../utils/fileType.js";
 export const LOCAL_UPLOAD_ROOT = path.resolve(process.cwd(), "uploads");
 export const LOCAL_URL_PREFIX = "/api/uploads";
+/** Where this API can be reached from a browser while developing. Set API_PUBLIC_URL if it is not http://localhost:PORT. */
+const localOrigin = () => (env.API_PUBLIC_URL ?? `http://localhost:${env.PORT}`).replace(/\/+$/, "");
 /**
  * Development and test fallback used when Cloudinary is not configured. Files land in
- * server/uploads and are served at /api/uploads (see app.ts), so they pass through the same
- * Next proxy as the rest of the API. Never used in production.
+ * server/uploads and are served at /api/uploads (see app.ts). Never used in production.
  */
 export class LocalDiskStorage {
     root;
@@ -22,7 +24,8 @@ export class LocalDiskStorage {
         const target = this.resolve(publicId);
         await fs.mkdir(path.dirname(target), { recursive: true });
         await fs.writeFile(target, buffer);
-        return { url: `${LOCAL_URL_PREFIX}/${publicId}`, publicId };
+        // Absolute, because the website is on a different address from this API and would otherwise look for the file on itself.
+        return { url: `${localOrigin()}${LOCAL_URL_PREFIX}/${publicId}`, publicId };
     }
     async remove(publicId) {
         await fs.rm(this.resolve(publicId), { force: true });

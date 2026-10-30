@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import { AppError } from "../../utils/AppError.js";
+import { ok } from "../../utils/respond.js";
 import { classifyDocument } from "../../utils/fileType.js";
 import type { VendorDoc } from "../../models/Vendor.js";
 import { getPrivateStorage } from "../../services/storage/index.js";
@@ -38,12 +39,12 @@ export async function saveNinSlip(vendor: VendorDoc, buffer: Buffer) {
   return vendor;
 }
 
-/** Sends the slip to the caller, who the route has already checked is the owner or an admin. */
+/** Sends the slip to the caller, who the route has already checked is the owner or an admin. A signed storage link comes back as JSON. */
 export async function sendNinSlip(res: Response, vendor: VendorDoc) {
   const slip = vendor.ninSlip;
   if (!slip?.publicId) throw AppError.notFound("No NIN slip has been uploaded");
   const file = await getPrivateStorage().open(slip.publicId, slip.mime ?? "application/octet-stream", slip.resourceType ?? undefined);
-  if (file.kind === "redirect") return res.redirect(302, file.url);
+  if (file.kind === "redirect") return ok(res, { url: file.url });
   res.setHeader("Content-Type", file.mime);
   res.setHeader("Content-Disposition", `inline; filename="nin-slip.${file.mime === "application/pdf" ? "pdf" : file.mime.split("/")[1]}"`);
   res.setHeader("Cache-Control", "private, no-store");

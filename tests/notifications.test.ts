@@ -4,7 +4,7 @@ import { Notification } from "../src/models/Notification.js";
 import { User } from "../src/models/User.js";
 import { EmailChannel } from "../src/services/notifications/channels.js";
 import { NotificationService, type NotificationChannel } from "../src/services/notifications/NotificationService.js";
-import { api, clearDb, createUser, fakeDistance, loginCookie, seedReferenceData, startDb, stopDb, XRW } from "./helpers.js";
+import { api, clearDb, createUser, fakeDistance, loginToken, seedReferenceData, startDb, stopDb } from "./helpers.js";
 import { asUser, createAdmin, createHandler, emailLog, paidOrder } from "./fulfilmentHelpers.js";
 import { chargeSuccess, fakeGateway, sendWebhook } from "./paymentHelpers.js";
 
@@ -66,7 +66,7 @@ describe("as the delivery moves along", () => {
     const rider = await createHandler();
     await Notification.deleteMany({});
     emailLog.reset();
-    return { ...o, admin, rider, a: asUser(admin.cookie), h: asUser(rider.cookie), v: asUser(o.vendorCookies.bodija), subId: String(o.bodijaSub._id) };
+    return { ...o, admin, rider, a: asUser(admin.bearer), h: asUser(rider.bearer), v: asUser(o.vendorTokens.bodija), subId: String(o.bodijaSub._id) };
   }
 
   it("assigning tells the handler and the vendor, not the customer", async () => {
@@ -159,10 +159,10 @@ describe("privacy of the messages", () => {
     const o = await paidOrder();
     const admin = await createAdmin();
     const rider = await createHandler();
-    await asUser(admin.cookie).post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(rider.user._id) });
-    await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.bodijaSub._id}/ready`);
-    await asUser(rider.cookie).post(`/handler/deliveries/${o.bodijaSub._id}/status`, { to: "PICKED_UP" });
-    await asUser(rider.cookie).post(`/handler/deliveries/${o.bodijaSub._id}/status`, { to: "DELIVERED" });
+    await asUser(admin.bearer).post(`/admin/sub-orders/${o.bodijaSub._id}/assign`, { handlerId: String(rider.user._id) });
+    await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.bodijaSub._id}/ready`);
+    await asUser(rider.bearer).post(`/handler/deliveries/${o.bodijaSub._id}/status`, { to: "PICKED_UP" });
+    await asUser(rider.bearer).post(`/handler/deliveries/${o.bodijaSub._id}/status`, { to: "DELIVERED" });
 
     const vendorText = JSON.stringify(await Notification.find({ userId: o.bodija.user._id })) + JSON.stringify(emailLog.to(o.bodija.email));
     for (const secret of [o.customer.email, "08030000000", "Awolowo", "Old Bodija"]) expect(vendorText, secret).not.toContain(secret);
@@ -180,7 +180,7 @@ describe("a failing channel never blocks the order", () => {
     emailLog.failWith = new Error("SMTP connection refused");
     await Notification.deleteMany({});
 
-    const res = await asUser(o.vendorCookies.bodija).post(`/vendor/orders/${o.bodijaSub._id}/ready`);
+    const res = await asUser(o.vendorTokens.bodija).post(`/vendor/orders/${o.bodijaSub._id}/ready`);
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe("READY_FOR_PICKUP");
     expect(await kindsFor(o.customer.user._id)).toEqual(["READY_FOR_PICKUP"]); // in-app still worked
@@ -218,7 +218,7 @@ describe("the email channel without an SMTP server", () => {
 describe("notification API", () => {
   async function withNotes() {
     const o = await paidOrder();
-    const v = asUser(o.vendorCookies.bodija);
+    const v = asUser(o.vendorTokens.bodija);
     return { ...o, v };
   }
 
@@ -251,7 +251,7 @@ describe("notification API", () => {
   it("keeps notifications private: another user cannot read, count or clear mine", async () => {
     const o = await withNotes();
     const mineId = (await o.v.get("/notifications")).body.data.items[0].id;
-    const snoop = asUser(o.customer.cookie);
+    const snoop = asUser(o.customer.bearer);
     expect((await snoop.post(`/notifications/${mineId}/read`)).status).toBe(404);
     const theirs = await snoop.get("/notifications");
     expect(JSON.stringify(theirs.body)).not.toContain(o.bodijaSub.ref);
@@ -261,10 +261,10 @@ describe("notification API", () => {
 
   it("works for every signed-in role and needs a login", async () => {
     expect((await api().get("/api/notifications")).status).toBe(401);
-    expect((await api().post("/api/notifications/read-all").set(XRW)).status).toBe(401);
+    expect((await api().post("/api/notifications/read-all")).status).toBe(401);
     for (const role of ["CUSTOMER", "VENDOR", "ADMIN", "HANDLER"] as const) {
       await createUser(role, `${role}@example.com`);
-      expect((await asUser(await loginCookie(`${role}@example.com`)).get("/notifications")).status, role).toBe(200);
+      expect((await asUser(await loginToken(`${role}@example.com`)).get("/notifications")).status, role).toBe(200);
     }
   });
 
@@ -278,7 +278,7 @@ describe("notification API", () => {
 
   it("returns an empty list, not an error, when there is nothing", async () => {
     const o = await withNotes();
-    const res = await asUser((await createHandler()).cookie).get("/notifications");
+    const res = await asUser((await createHandler()).bearer).get("/notifications");
     expect(res.body.data).toEqual({ unreadCount: 0, items: [] });
     void o;
   });

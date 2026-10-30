@@ -2,7 +2,7 @@ import { InAppChannel } from "../src/services/notifications/channels.js";
 import { NotificationService, setNotifier, type NotificationChannel, type NotificationMessage, type Recipient } from "../src/services/notifications/index.js";
 import { Order } from "../src/models/Order.js";
 import { SubOrder, type SubOrderDoc } from "../src/models/SubOrder.js";
-import { api, createUser, loginCookie, XRW } from "./helpers.js";
+import { api, createUser, loginToken } from "./helpers.js";
 import { chargeSuccess, placeOrder, sendWebhook, twoVendorScenario } from "./paymentHelpers.js";
 
 /** Stands in for the email channel: remembers what would have been sent, optionally fails. */
@@ -28,22 +28,22 @@ export const emailLog = new RecordingChannel();
 // Real in-app notifications (stored in the database) plus the recording stand-in for email.
 setNotifier(new NotificationService([new InAppChannel(), emailLog]));
 
-export const asUser = (cookie: string) => ({
-  get: (path: string) => api().get(`/api${path}`).set("Cookie", cookie),
-  post: (path: string, body?: unknown) => api().post(`/api${path}`).set(XRW).set("Cookie", cookie).send((body ?? {}) as object),
-  patch: (path: string, body?: unknown) => api().patch(`/api${path}`).set(XRW).set("Cookie", cookie).send((body ?? {}) as object),
-  put: (path: string, body?: unknown) => api().put(`/api${path}`).set(XRW).set("Cookie", cookie).send((body ?? {}) as object),
-  delete: (path: string) => api().delete(`/api${path}`).set(XRW).set("Cookie", cookie),
+export const asUser = (bearer: string) => ({
+  get: (path: string) => api().get(`/api${path}`).set("Authorization", bearer),
+  post: (path: string, body?: unknown) => api().post(`/api${path}`).set("Authorization", bearer).send((body ?? {}) as object),
+  patch: (path: string, body?: unknown) => api().patch(`/api${path}`).set("Authorization", bearer).send((body ?? {}) as object),
+  put: (path: string, body?: unknown) => api().put(`/api${path}`).set("Authorization", bearer).send((body ?? {}) as object),
+  delete: (path: string) => api().delete(`/api${path}`).set("Authorization", bearer),
 });
 
 export async function createHandler(email = "rider@example.com") {
   const user = await createUser("HANDLER", email);
-  return { user, email, cookie: await loginCookie(email) };
+  return { user, email, bearer: await loginToken(email) };
 }
 
 export async function createAdmin(email = "admin@example.com") {
   const user = await createUser("ADMIN", email);
-  return { user, email, cookie: await loginCookie(email) };
+  return { user, email, bearer: await loginToken(email) };
 }
 
 /**
@@ -58,11 +58,11 @@ export async function paidOrder() {
   const subs = await SubOrder.find({ orderId: placed.order._id }).sort({ ref: 1 });
   const bodijaSub = subs.find((x) => String(x.vendorId) === String(s.bodija.vendor._id))!;
   const ojabaSub = subs.find((x) => String(x.vendorId) === String(s.ojaba.vendor._id))!;
-  const vendorCookies = {
-    bodija: await loginCookie(s.bodija.email),
-    ojaba: await loginCookie(s.ojaba.email),
+  const vendorTokens = {
+    bodija: await loginToken(s.bodija.email),
+    ojaba: await loginToken(s.ojaba.email),
   };
-  return { ...s, ...placed, subs, bodijaSub, ojabaSub, vendorCookies };
+  return { ...s, ...placed, subs, bodijaSub, ojabaSub, vendorTokens };
 }
 
 export const reload = (sub: SubOrderDoc) => SubOrder.findById(sub._id).then((x) => x!);

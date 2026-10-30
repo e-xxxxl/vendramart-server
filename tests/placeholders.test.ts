@@ -7,7 +7,7 @@ import { User } from "../src/models/User.js";
 import { Vendor } from "../src/models/Vendor.js";
 import { Address } from "../src/models/Address.js";
 import { DEMO_EMAIL_DOMAIN, DEMO_PRODUCT_COUNT, seedDemoData } from "../src/seed/demo.js";
-import { XRW, api, clearDb, createCustomer, createProduct, createVendor, fakeDistance, loginCookie, memoryStorage, seedReferenceData, startDb, stopDb } from "./helpers.js";
+import { api, clearDb, createCustomer, createProduct, createVendor, fakeDistance, loginToken, memoryStorage, seedReferenceData, startDb, stopDb } from "./helpers.js";
 
 beforeAll(startDb);
 afterAll(stopDb);
@@ -103,11 +103,11 @@ describe("storefront images", () => {
     const v = await createVendor({ name: "Live Store" });
     fakeDistance.setFrom({ lat: 7.4318, lng: 3.9144 }, 3200);
     const p = await createProduct(v.vendor, { slug: "cart-thing", categoryId: (await Category.findOne({ slug: "fashion" }))!._id });
-    const cart = await api().post("/api/cart/validate").set(XRW).send({ items: [{ productId: String(p._id), qty: 1 }] });
+    const cart = await api().post("/api/cart/validate").send({ items: [{ productId: String(p._id), qty: 1 }] });
     expect(cart.body.data.lines[0].image).toBe(productPlaceholder("fashion"));
 
     const c = await createCustomer();
-    const quote = await api().post("/api/checkout/quote").set(XRW).set("Cookie", c.cookie).send({ items: [{ productId: String(p._id), qty: 1 }], addressId: String(c.address._id) });
+    const quote = await api().post("/api/checkout/quote").set("Authorization", c.bearer).send({ items: [{ productId: String(p._id), qty: 1 }], addressId: String(c.address._id) });
     expect(quote.body.data.legs[0].items[0].image).toBe(productPlaceholder("fashion"));
   });
 
@@ -129,15 +129,15 @@ describe("storefront images", () => {
 describe("vendors and stand-in photos", () => {
   async function asVendor() {
     const v = await createVendor({ name: "Demo Vendor" });
-    const cookie = await loginCookie(v.email);
-    return { ...v, cookie };
+    const bearer = await loginToken(v.email);
+    return { ...v, bearer };
   }
 
   it("lets a vendor edit a demo product while keeping its stand-in photos", async () => {
     const v = await asVendor();
     const images = [placeholderImage(PHOTO.flourSack), placeholderImage(PHOTO.flourShelf)];
     const p = await createProduct(v.vendor, { images });
-    const res = await api().patch(`/api/vendor/products/${p._id}`).set(XRW).set("Cookie", v.cookie).send({ stock: 3, images });
+    const res = await api().patch(`/api/vendor/products/${p._id}`).set("Authorization", v.bearer).send({ stock: 3, images });
     expect(res.status).toBe(200);
     expect(res.body.data.images.map((i: { publicId: string }) => i.publicId)).toEqual(images.map((i) => i.publicId));
   });
@@ -145,7 +145,7 @@ describe("vendors and stand-in photos", () => {
   it("still refuses another store's real uploaded image", async () => {
     const v = await asVendor();
     const p = await createProduct(v.vendor);
-    const res = await api().patch(`/api/vendor/products/${p._id}`).set(XRW).set("Cookie", v.cookie).send({ images: [{ url: "https://img.test/x.jpg", publicId: "vendors/someone-else/products/x" }] });
+    const res = await api().patch(`/api/vendor/products/${p._id}`).set("Authorization", v.bearer).send({ images: [{ url: "https://img.test/x.jpg", publicId: "vendors/someone-else/products/x" }] });
     expect(res.status).toBe(422);
   });
 
@@ -154,8 +154,8 @@ describe("vendors and stand-in photos", () => {
     const removeSpy = vi.spyOn(memoryStorage, "remove");
     const images = [placeholderImage(PHOTO.yams)];
     const p = await createProduct(v.vendor, { images });
-    await api().patch(`/api/vendor/products/${p._id}`).set(XRW).set("Cookie", v.cookie).send({ images: [] });
-    await api().delete(`/api/vendor/products/${p._id}`).set(XRW).set("Cookie", v.cookie);
+    await api().patch(`/api/vendor/products/${p._id}`).set("Authorization", v.bearer).send({ images: [] });
+    await api().delete(`/api/vendor/products/${p._id}`).set("Authorization", v.bearer);
     expect(removeSpy).not.toHaveBeenCalled();
     removeSpy.mockRestore();
   });
@@ -206,19 +206,19 @@ describe("demo data seeder", () => {
 
   it("uses the password it was given, never a hardcoded one", async () => {
     await seedDemoData("Sh4redWithClient");
-    const ok = await api().post("/api/auth/login").set(XRW).send({ email: `vendor@${DEMO_EMAIL_DOMAIN}`, password: "Sh4redWithClient" });
+    const ok = await api().post("/api/auth/login").send({ email: `vendor@${DEMO_EMAIL_DOMAIN}`, password: "Sh4redWithClient" });
     expect(ok.status).toBe(200);
-    const bad = await api().post("/api/auth/login").set(XRW).send({ email: `vendor@${DEMO_EMAIL_DOMAIN}`, password: "Passw0rd123" });
+    const bad = await api().post("/api/auth/login").send({ email: `vendor@${DEMO_EMAIL_DOMAIN}`, password: "Passw0rd123" });
     expect(bad.status).toBe(401);
   });
 
   it("lets the demo customer actually place an order against the demo stores", async () => {
     await seedDemoData("Demo12345");
-    const cookie = await loginCookie(`customer@${DEMO_EMAIL_DOMAIN}`, "Demo12345");
+    const bearer = await loginToken(`customer@${DEMO_EMAIL_DOMAIN}`, "Demo12345");
     const products = (await api().get("/api/products?limit=48")).body.data;
-    const addr = (await api().get("/api/me/addresses").set("Cookie", cookie)).body.data[0];
+    const addr = (await api().get("/api/me/addresses").set("Authorization", bearer)).body.data[0];
     const sellable = products.filter((p: { inStock: boolean }) => p.inStock).slice(0, 2);
-    const res = await api().post("/api/checkout/quote").set(XRW).set("Cookie", cookie).send({ items: sellable.map((p: { id: string }) => ({ productId: p.id, qty: 1 })), addressId: addr.id });
+    const res = await api().post("/api/checkout/quote").set("Authorization", bearer).send({ items: sellable.map((p: { id: string }) => ({ productId: p.id, qty: 1 })), addressId: addr.id });
     expect(res.status).toBe(200);
     expect(res.body.data.totalKobo).toBeGreaterThan(0);
   });

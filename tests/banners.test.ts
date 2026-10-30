@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Banner, bannerState } from "../src/models/Banner.js";
 import { seedDemoData } from "../src/seed/demo.js";
-import { XRW, api, clearDb, createUser, loginCookie, pngBytes, seedReferenceData, startDb, stopDb } from "./helpers.js";
+import { api, clearDb, createUser, loginToken, pngBytes, seedReferenceData, startDb, stopDb } from "./helpers.js";
 import { asUser, createAdmin } from "./fulfilmentHelpers.js";
 
 beforeAll(startDb);
@@ -27,9 +27,9 @@ describe("who can manage banners", () => {
     expect((await api().get("/api/admin/banners")).status).toBe(401);
     for (const role of ["CUSTOMER", "VENDOR", "HANDLER"] as const) {
       await createUser(role, `${role.toLowerCase()}@example.com`);
-      const cookie = await loginCookie(`${role.toLowerCase()}@example.com`);
-      expect((await asUser(cookie).get("/admin/banners")).status).toBe(403);
-      expect((await asUser(cookie).post("/admin/banners", good())).status).toBe(403);
+      const bearer = await loginToken(`${role.toLowerCase()}@example.com`);
+      expect((await asUser(bearer).get("/admin/banners")).status).toBe(403);
+      expect((await asUser(bearer).post("/admin/banners", good())).status).toBe(403);
     }
     expect(await Banner.countDocuments()).toBe(0);
   });
@@ -37,7 +37,7 @@ describe("who can manage banners", () => {
 
 describe("adding and changing banners", () => {
   it("creates a banner at the end of its group and lists it", async () => {
-    const a = asUser((await createAdmin()).cookie);
+    const a = asUser((await createAdmin()).bearer);
     const one = await a.post("/admin/banners", good({ title: "First" }));
     const two = await a.post("/admin/banners", good({ title: "Second" }));
     const side = await a.post("/admin/banners", good({ title: "Side", placement: "SIDE" }));
@@ -49,7 +49,7 @@ describe("adding and changing banners", () => {
   });
 
   it("refuses links that could run code or leave for a lookalike address", async () => {
-    const a = asUser((await createAdmin()).cookie);
+    const a = asUser((await createAdmin()).bearer);
     for (const link of ["javascript:alert(1)", "data:text/html,hi", "//evil.example/x", "http://plain.example", "category/fashion", "/ok\\evil", ""]) {
       const res = await a.post("/admin/banners", good({ link }));
       expect(res.status, link).toBe(422);
@@ -59,7 +59,7 @@ describe("adding and changing banners", () => {
   });
 
   it("needs a title and a picture, and keeps the words short", async () => {
-    const a = asUser((await createAdmin()).cookie);
+    const a = asUser((await createAdmin()).bearer);
     expect((await a.post("/admin/banners", good({ title: "  " }))).status).toBe(422);
     expect((await a.post("/admin/banners", good({ title: "x".repeat(81) }))).status).toBe(422);
     expect((await a.post("/admin/banners", good({ ctaLabel: "x".repeat(25) }))).status).toBe(422);
@@ -70,7 +70,7 @@ describe("adding and changing banners", () => {
   });
 
   it("refuses an end that is not after the start", async () => {
-    const a = asUser((await createAdmin()).cookie);
+    const a = asUser((await createAdmin()).bearer);
     const res = await a.post("/admin/banners", good({ startsAt: hours(10), endsAt: hours(5) }));
     expect(res.status).toBe(422);
     expect(res.body.error.details?.endsAt ?? JSON.stringify(res.body)).toBeTruthy();
@@ -78,7 +78,7 @@ describe("adding and changing banners", () => {
   });
 
   it("edits a banner, switches it off and on, and deletes it", async () => {
-    const a = asUser((await createAdmin()).cookie);
+    const a = asUser((await createAdmin()).bearer);
     const { id } = (await a.post("/admin/banners", good())).body.data;
 
     const edited = await a.put(`/admin/banners/${id}`, good({ title: "Changed", subtitle: "", ctaLabel: "" }));
@@ -95,7 +95,7 @@ describe("adding and changing banners", () => {
   });
 
   it("reorders a group with the ids in the order they should appear", async () => {
-    const a = asUser((await createAdmin()).cookie);
+    const a = asUser((await createAdmin()).bearer);
     const ids: string[] = [];
     for (const t of ["A", "B", "C"]) ids.push((await a.post("/admin/banners", good({ title: t }))).body.data.id);
     const res = await a.put("/admin/banners/order", { ids: [ids[2], ids[0], ids[1]] });
@@ -108,28 +108,28 @@ describe("adding and changing banners", () => {
 
 describe("uploading a banner picture", () => {
   it("accepts a real image and refuses anything else", async () => {
-    const cookie = (await createAdmin()).cookie;
-    const ok = await api().post("/api/admin/banners/image").set(XRW).set("Cookie", cookie).attach("file", pngBytes(), { filename: "sale.png", contentType: "image/png" });
+    const bearer = (await createAdmin()).bearer;
+    const ok = await api().post("/api/admin/banners/image").set("Authorization", bearer).attach("file", pngBytes(), { filename: "sale.png", contentType: "image/png" });
     expect(ok.status).toBe(201);
     expect(ok.body.data.url).toContain("banners/");
 
-    const fake = await api().post("/api/admin/banners/image").set(XRW).set("Cookie", cookie).attach("file", Buffer.from("<script>alert(1)</script>"), { filename: "x.png", contentType: "image/png" });
+    const fake = await api().post("/api/admin/banners/image").set("Authorization", bearer).attach("file", Buffer.from("<script>alert(1)</script>"), { filename: "x.png", contentType: "image/png" });
     expect(fake.status).toBe(422);
-    const none = await api().post("/api/admin/banners/image").set(XRW).set("Cookie", cookie);
+    const none = await api().post("/api/admin/banners/image").set("Authorization", bearer);
     expect(none.status).toBe(422);
   });
 
   it("is refused for a vendor", async () => {
     await createUser("VENDOR", "v@example.com");
-    const cookie = await loginCookie("v@example.com");
-    const res = await api().post("/api/admin/banners/image").set(XRW).set("Cookie", cookie).attach("file", pngBytes(), { filename: "a.png", contentType: "image/png" });
+    const bearer = await loginToken("v@example.com");
+    const res = await api().post("/api/admin/banners/image").set("Authorization", bearer).attach("file", pngBytes(), { filename: "a.png", contentType: "image/png" });
     expect(res.status).toBe(403);
   });
 });
 
 describe("what shoppers see", () => {
   it("is open to everyone and shows only banners that are live, in order, without admin details", async () => {
-    const a = asUser((await createAdmin()).cookie);
+    const a = asUser((await createAdmin()).bearer);
     await a.post("/admin/banners", good({ title: "Live one" }));
     await a.post("/admin/banners", good({ title: "Live two" }));
     await a.post("/admin/banners", good({ title: "Hidden", isActive: false }));
