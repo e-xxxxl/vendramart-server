@@ -69,7 +69,8 @@ handlerDeliveriesRouter.get(
     const filter = { handlerId: me, status: { $in: [...GROUPS[group]] } };
     const [subs, total, active, done] = await Promise.all([
       SubOrder.find(filter)
-        .sort({ updatedAt: -1 })
+        // Finished deliveries newest first by when they were delivered; the ones still to do by when they last changed.
+        .sort(group === "done" ? { deliveredAt: -1, updatedAt: -1 } : { updatedAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       SubOrder.countDocuments(filter),
@@ -92,6 +93,7 @@ handlerDeliveriesRouter.get(
           dropoffLine: s.delivery!.dropoff!.line,
           distanceKm: (Math.round(s.delivery!.distanceMeters / 100) / 10).toFixed(1),
           itemCount: s.items.reduce((n, i) => n + i.qty, 0),
+          deliveredAt: s.deliveredAt ?? null,
         })),
       },
       { page, limit, total },

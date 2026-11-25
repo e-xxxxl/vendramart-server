@@ -72,7 +72,8 @@ adminDeliveriesRouter.get(
 
     const [subs, total, counts] = await Promise.all([
       SubOrder.find(filter)
-        .sort({ paidAt: -1, createdAt: -1 })
+        // Delivered ones newest first by when they arrived; the rest by when they were paid.
+        .sort(group === "done" ? { deliveredAt: -1, paidAt: -1 } : { paidAt: -1, createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
       SubOrder.countDocuments(filter),
