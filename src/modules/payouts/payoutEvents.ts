@@ -2,6 +2,7 @@ import { User, type UserDoc } from "../../models/User.js";
 import type { PayoutDoc } from "../../models/Payout.js";
 import type { VendorDoc } from "../../models/Vendor.js";
 import { getNotifier, type NotificationMessage, type Recipient } from "../../services/notifications/index.js";
+import { formatLagosDateTime } from "../../utils/formatDate.js";
 import { formatNaira } from "../../utils/formatNaira.js";
 import { adminPayoutPage } from "../../utils/webLinks.js";
 import { notifyDesks, notifyTeam } from "../accounts/team.js";
@@ -39,11 +40,11 @@ export const notifyPayoutPaid = (payout: PayoutDoc, vendor: VendorDoc) =>
       await send([owner], {
         kind: "PAYOUT_PAID",
         title: `Payout ${payout.number} paid`,
-        body: `${formatNaira(payout.amountKobo)} has been transferred to ${payout.bank!.bankName}. The transfer receipt is on your earnings page.`,
+        body: `${formatNaira(payout.amountKobo)} was transferred to ${payout.bank!.bankName} on ${formatLagosDateTime(payout.paidAt ?? payout.resolvedAt ?? new Date())}. The transfer receipt is on your earnings page.`,
         link: "/vendor/earnings",
       });
     }
-    await notifyDesks({ kind: "TEAM_PAYOUT_PAID", title: `Payout ${payout.number} paid`, body: `${formatNaira(payout.amountKobo)} was transferred to ${vendor.businessName}.`, link: adminPayoutPage(payout._id) }, { vendorDesk: true });
+    await notifyDesks({ kind: "TEAM_PAYOUT_PAID", title: `Payout ${payout.number} paid`, body: `${formatNaira(payout.amountKobo)} was transferred to ${vendor.businessName} on ${formatLagosDateTime(payout.paidAt ?? payout.resolvedAt ?? new Date())}.`, link: adminPayoutPage(payout._id) }, { vendorDesk: true });
   });
 
 export const notifyPayoutDeclined = (payout: PayoutDoc, vendor: VendorDoc) =>

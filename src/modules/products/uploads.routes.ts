@@ -16,7 +16,7 @@ vendorUploadRouter.post(
   "/image",
   singleFile,
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     if (vendor.status === "SUSPENDED") throw AppError.forbidden("Your store is suspended. Contact support.");
     if (!req.file) throw AppError.validation("Choose an image to upload");
 
@@ -35,7 +35,7 @@ vendorUploadRouter.post(
   "/logo",
   singleFile,
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     if (vendor.status === "SUSPENDED") throw AppError.forbidden("Your store is suspended. Contact support.");
     if (!req.file) throw AppError.validation("Choose an image to upload");
     if (!detectImageKind(req.file.buffer)) throw AppError.validation("Only JPG, PNG or WebP images are allowed");

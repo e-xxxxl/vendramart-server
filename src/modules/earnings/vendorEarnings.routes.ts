@@ -20,7 +20,7 @@ vendorEarningsRouter.get(
   "/earnings",
   validate({ query: paged }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     const { page, limit } = req.validated.query as { page: number; limit: number };
     const now = new Date();
     const { subs, results, summary } = await loadEarnings(vendor._id, now);
@@ -45,7 +45,7 @@ vendorEarningsRouter.get(
 vendorEarningsRouter.get(
   "/payouts",
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     ok(res, (await Payout.find({ vendorId: vendor._id }).sort({ requestedAt: -1 }).limit(50)).map(presentPayout));
   }),
 );
@@ -55,7 +55,7 @@ vendorEarningsRouter.post(
   "/payouts",
   validate({ body: z.object({}).strict() }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     if (vendor.status === "SUSPENDED") throw AppError.forbidden("Your store is suspended. Contact support.");
     created(res, presentPayout(await requestPayout(vendor, req.user!)));
   }),

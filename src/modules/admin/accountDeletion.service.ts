@@ -116,7 +116,9 @@ export async function deleteVendor(id: string): Promise<DeletionResult> {
   if (await Payout.exists({ vendorId: vendor._id })) {
     refuse("This store has payout records.");
   }
-  const owner = await User.findById(vendor.userId);
+  // An owner with other stores keeps their sign-in: only this store goes.
+  const otherStores = await Vendor.countDocuments({ userId: vendor.userId, _id: { $ne: vendor._id } });
+  const owner = otherStores > 0 ? null : await User.findById(vendor.userId);
   if (owner) await sayGoodbye(owner);
 
   // Cancelled orders that never took money, then the catalogue.

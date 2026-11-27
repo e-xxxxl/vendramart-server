@@ -38,7 +38,7 @@ adminSearchRouter.get(
       orders: orders.map((o) => ({ id: String(o._id), title: o.orderNumber, sub: `${o.customer?.name ?? "Customer"} · ${o.status}`, href: `/admin/orders?id=${o._id}` })),
       vendors: vendors.map((v) => ({ id: String(v._id), title: v.businessName, sub: `${v.ownerName} · ${v.status}`, href: `/admin/vendors?id=${v._id}` })),
       customers: customers.map((u) => ({ id: String(u._id), title: u.name, sub: u.email, href: `/admin/customers?q=${encodeURIComponent(u.email)}` })),
-      payouts: payouts.map((p) => ({ id: String(p._id), title: p.number, sub: `${vendorName.get(String(p.vendorId)) ?? "Vendor"} · ${p.status}`, href: `/admin/payouts?tab=${p.status === "PAID" ? "paid" : p.status === "DECLINED" ? "declined" : "pending"}&id=${p._id}` })),
+      payouts: payouts.map((p) => ({ id: String(p._id), title: p.number, sub: `${vendorName.get(String(p.vendorId)) ?? "Vendor"} · ${p.status}`, href: `/admin/payouts?tab=${p.status === "PAID" ? "paid" : p.status === "DECLINED" ? "declined" : p.source === "ADMIN_RELEASE" ? "released" : "pending"}&id=${p._id}` })),
     });
   }),
 );

@@ -5,6 +5,7 @@ import { createApp } from "./app.js";
 import { User } from "./models/User.js";
 import { Address } from "./models/Address.js";
 import { Order } from "./models/Order.js";
+import { migrateVendorIndexes } from "./models/vendorIndexes.js";
 import { SubOrder } from "./models/SubOrder.js";
 import { WebhookEvent } from "./models/WebhookEvent.js";
 import { expireStaleOrders } from "./modules/orders/orders.service.js";
@@ -29,6 +30,9 @@ async function main() {
   const conn = await connectDb(env.MONGODB_URI);
   // Make sure unique indexes (e.g. User.email, Order payment reference, webhook event keys) exist before taking traffic.
   await Promise.all([User.init(), Address.init(), Order.init(), SubOrder.init(), WebhookEvent.init()]);
+  // A store used to be one per sign-in and one per NIN: drop those old unique indexes so a sign-in can run up to 3 stores.
+  const dropped = await migrateVendorIndexes();
+  if (dropped.length) console.log(`Dropped the old one-store-only indexes: ${dropped.join(", ")}`);
   console.log(`MongoDB connected: ${conn.name}`);
 
   // A brand-new database has no cities or categories, and the storefront cannot work without them.

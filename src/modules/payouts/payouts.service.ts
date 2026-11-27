@@ -3,7 +3,7 @@ import { assertPayoutTransition, PayoutTransitionError } from "../../domain/payo
 import { sumKobo } from "../../domain/money.js";
 import { netEarningKobo } from "../../domain/returns.js";
 import { nextSeq } from "../../models/Counter.js";
-import { Payout, type PayoutDoc } from "../../models/Payout.js";
+import { Payout, type PayoutDoc, type PayoutSource } from "../../models/Payout.js";
 import { SubOrder } from "../../models/SubOrder.js";
 import { Vendor, type VendorDoc } from "../../models/Vendor.js";
 import type { UserDoc } from "../../models/User.js";
@@ -11,7 +11,7 @@ import { getPrivateStorage } from "../../services/storage/index.js";
 import { AppError } from "../../utils/AppError.js";
 import { classifyDocument } from "../../utils/fileType.js";
 import { storageFolder } from "../../utils/storagePaths.js";
-import { availableFilter, declinedPayoutIds } from "../earnings/earnings.service.js";
+import { availableFilter, declinedPayoutIds, dueByVendor } from "../earnings/earnings.service.js";
 import { notifyPayoutDeclined, notifyPayoutPaid, notifyPayoutRequested } from "./payoutEvents.js";
 
 const PAYOUT_NUMBER_START = 2290; // first payout is PR-2291
@@ -43,35 +43,36 @@ async function releaseOrphanLocks(vendorId: Types.ObjectId): Promise<void> {
 }
 
 /**
- * The vendor asks for everything that is available right now. In one go it: locks the vendor, claims every
- * unlocked, delivered, hold-cleared sub-order for this payout with a single atomic update, adds up what it
- * actually claimed, and creates the payout. Held, undelivered and already-requested orders are never included.
+ * In one go: locks the vendor, claims every unlocked, delivered, hold-cleared sub-order for this payout with a single atomic
+ * update, adds up what it actually claimed, and creates the payout. Held, undelivered and already-claimed orders are never
+ * included, so the same earnings can not be paid twice whether the vendor asked or the admin released them, even if both
+ * happen at the same moment: only one of them can claim a given order.
  */
-export async function requestPayout(vendor: VendorDoc, user: UserDoc, now = new Date()): Promise<PayoutDoc> {
+async function createPayout(vendor: VendorDoc, by: UserDoc, source: PayoutSource, now: Date): Promise<PayoutDoc> {
+  const nothing = "There are no earnings available to withdraw yet. Earnings unlock 4 working days after delivery.";
   await acquireLock(vendor._id, now);
   try {
     await releaseOrphanLocks(vendor._id);
     const payoutId = new Types.ObjectId();
     const claim = await SubOrder.updateMany(availableFilter(vendor._id, now, await declinedPayoutIds(vendor._id)), { $set: { payoutId, payoutLockedAt: now } });
-    if (claim.modifiedCount === 0) throw AppError.conflict("You have no earnings available to withdraw yet. Earnings unlock 4 working days after delivery.");
+    if (claim.modifiedCount === 0) throw AppError.conflict(nothing);
 
     try {
       const claimed = await SubOrder.find({ payoutId });
       // Refunds can take a delivery's earnings down to nothing: there is then nothing to pay out for it.
       const amountKobo = sumKobo(claimed.map((s) => netEarningKobo(s.vendorEarningKobo, s.returnedEarningKobo)));
-      if (amountKobo < 1) throw AppError.conflict("You have no earnings available to withdraw yet. Earnings unlock 4 working days after delivery.");
-      const payout = await Payout.create({
+      if (amountKobo < 1) throw AppError.conflict(nothing);
+      return await Payout.create({
         _id: payoutId,
         number: `PR-${await nextSeq("payout", PAYOUT_NUMBER_START)}`,
         vendorId: vendor._id,
-        requestedBy: user._id,
+        requestedBy: by._id,
+        source,
         amountKobo,
         subOrderIds: claimed.map((s) => s._id),
         bank: { bankName: vendor.bank!.bankName, accountNumber: vendor.bank!.accountNumber, accountName: vendor.bank!.accountName },
         requestedAt: now,
       });
-      await notifyPayoutRequested(payout, vendor);
-      return payout;
     } catch (err) {
       // Could not create the payout: hand the orders back so nothing is stranded.
       await SubOrder.updateMany({ payoutId }, { $unset: { payoutId: 1, payoutLockedAt: 1 } });
@@ -80,6 +81,60 @@ export async function requestPayout(vendor: VendorDoc, user: UserDoc, now = new 
   } finally {
     await releaseLock(vendor._id);
   }
+}
+
+/** The vendor asks for everything that is available right now. */
+export async function requestPayout(vendor: VendorDoc, user: UserDoc, now = new Date()): Promise<PayoutDoc> {
+  const payout = await createPayout(vendor, user, "VENDOR_REQUEST", now);
+  await notifyPayoutRequested(payout, vendor);
+  return payout;
+}
+
+export interface ReleaseResult {
+  released: { payoutId: string; number: string; vendorId: string; businessName: string; amountKobo: number }[];
+  /** Vendors that were not released, with the reason in words. */
+  skipped: { vendorId: string; businessName: string; reason: string }[];
+}
+
+/**
+ * The admin releases the earnings that are ready (hold over, no open return, refunds taken off) for the chosen vendors, or for
+ * every vendor with something due. Each becomes a payout in the normal queue, labelled as released by the admin, which is then
+ * paid with a transfer receipt like any other. A suspended store, or one with no bank details, is skipped and says why.
+ */
+export async function releaseDuePayouts(admin: UserDoc, vendorIds: string[] | null, now = new Date()): Promise<ReleaseResult> {
+  const due = await dueByVendor(now);
+  const wanted = vendorIds ? new Set(vendorIds) : null;
+  const picked = due.filter((d) => !wanted || wanted.has(String(d.vendorId)));
+  const vendors = await Vendor.find({ _id: { $in: picked.map((d) => d.vendorId) } });
+  const byId = new Map(vendors.map((v) => [String(v._id), v]));
+
+  const result: ReleaseResult = { released: [], skipped: [] };
+  for (const d of picked) {
+    const vendor = byId.get(String(d.vendorId));
+    if (!vendor) continue;
+    const skip = (reason: string) => result.skipped.push({ vendorId: String(vendor._id), businessName: vendor.businessName, reason });
+    const blocked = releaseBlocker(vendor);
+    if (blocked) {
+      skip(blocked);
+      continue;
+    }
+    try {
+      const payout = await createPayout(vendor, admin, "ADMIN_RELEASE", now);
+      result.released.push({ payoutId: String(payout._id), number: payout.number, vendorId: String(vendor._id), businessName: vendor.businessName, amountKobo: payout.amountKobo });
+    } catch (err) {
+      // Someone else (the vendor, a second admin) claimed it a moment ago: that is not a failure of the release.
+      if (err instanceof AppError && err.status === 409) skip("Already being paid out");
+      else throw err;
+    }
+  }
+  return result;
+}
+
+/** Why this vendor's earnings can not be released right now, or null when they can. */
+export function releaseBlocker(vendor: Pick<VendorDoc, "status" | "bank">): string | null {
+  if (vendor.status === "SUSPENDED") return "The store is suspended";
+  if (!vendor.bank?.accountNumber) return "No bank details on file";
+  return null;
 }
 
 export interface ReceiptFile {
@@ -113,7 +168,7 @@ export async function payPayout(payoutId: string, admin: UserDoc, receipt: Recei
   // Guarded on status: if another admin decided it in the meantime, this loses and the upload is removed.
   const paid = await Payout.findOneAndUpdate(
     { _id: payoutId, status: "REQUESTED" },
-    { $set: { status: "PAID", resolvedAt: now, resolvedBy: admin._id, receipt: { publicId: stored.publicId, mime: kind.mime, resourceType: stored.resourceType } } },
+    { $set: { status: "PAID", resolvedAt: now, paidAt: now, resolvedBy: admin._id, receipt: { publicId: stored.publicId, mime: kind.mime, resourceType: stored.resourceType } } },
     { returnDocument: "after" },
   );
   if (!paid) {

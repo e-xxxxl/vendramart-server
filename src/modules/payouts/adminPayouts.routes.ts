@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Types } from "mongoose";
 import { z } from "zod";
 import { PAYOUT_STATUSES } from "../../domain/payoutStateMachine.js";
 import { netEarningKobo } from "../../domain/returns.js";
@@ -8,28 +9,63 @@ import { asyncHandler } from "../../utils/asyncHandler.js";
 import { AppError } from "../../utils/AppError.js";
 import { ok } from "../../utils/respond.js";
 import { objectId, pagination } from "../../utils/zodCommon.js";
-import { Payout, presentPayout, type PayoutDoc } from "../../models/Payout.js";
+import { Payout, PAYOUT_SOURCES, presentPayout, type PayoutDoc, type PayoutSource } from "../../models/Payout.js";
 import { SubOrder } from "../../models/SubOrder.js";
+import { User } from "../../models/User.js";
 import { Vendor } from "../../models/Vendor.js";
 import { lagosRange, MAX_EXPORT_DAYS, payoutCsv } from "../../domain/payoutExport.js";
-import { declinePayout, payPayout } from "./payouts.service.js";
+import { dueByVendor, loadEarnings } from "../earnings/earnings.service.js";
+import { declinePayout, payPayout, releaseBlocker, releaseDuePayouts } from "./payouts.service.js";
 
 // Mounted under /api/admin/payouts, behind requireRole("ADMIN").
 export const adminPayoutsRouter = Router();
 
-async function listRows(payouts: PayoutDoc[]) {
-  const vendors = await Vendor.find({ _id: { $in: payouts.map((p) => p.vendorId) } }).select("businessName slug");
-  const byId = new Map(vendors.map((v) => [String(v._id), v]));
-  return payouts.map((p) => ({ ...presentPayout(p), vendor: { id: String(p.vendorId), businessName: byId.get(String(p.vendorId))?.businessName ?? "Vendor" } }));
+/**
+ * The vendor's whole position in one place, so the person paying never has to guess what is left: what is ready to be paid, what
+ * is already in a payout waiting to be paid (so it can not be credited twice), what is still in the hold, and what was paid.
+ * `owedKobo` is everything earned and not yet paid: ready + in a payout + on hold.
+ */
+async function vendorBalances(vendorIds: Types.ObjectId[], now: Date) {
+  const entries = await Promise.all(
+    vendorIds.map(async (id) => {
+      const { summary } = await loadEarnings(id, now);
+      return [
+        String(id),
+        {
+          readyKobo: summary.availableKobo,
+          inPayoutKobo: summary.requestedKobo,
+          onHoldKobo: summary.onHoldKobo,
+          awaitingDeliveryKobo: summary.awaitingKobo,
+          paidKobo: summary.paidKobo,
+          owedKobo: summary.availableKobo + summary.requestedKobo + summary.onHoldKobo,
+        },
+      ] as const;
+    }),
+  );
+  return new Map(entries);
 }
+
+async function listRows(payouts: PayoutDoc[]) {
+  const ids = [...new Set(payouts.map((p) => String(p.vendorId)))].map((i) => new Types.ObjectId(i));
+  const [vendors, balances] = await Promise.all([Vendor.find({ _id: { $in: ids } }).select("businessName slug"), vendorBalances(ids, new Date())]);
+  const byId = new Map(vendors.map((v) => [String(v._id), v]));
+  return payouts.map((p) => ({
+    ...presentPayout(p),
+    vendor: { id: String(p.vendorId), businessName: byId.get(String(p.vendorId))?.businessName ?? "Vendor" },
+    balance: balances.get(String(p.vendorId)) ?? null,
+  }));
+}
+
+// A payout from before `source` existed has none and was asked for by the vendor.
+const sourceFilter = (source: PayoutSource): Record<string, unknown> => (source === "ADMIN_RELEASE" ? { source: "ADMIN_RELEASE" } : { source: { $ne: "ADMIN_RELEASE" } });
 
 adminPayoutsRouter.get(
   "/",
-  validate({ query: pagination.extend({ status: z.enum(PAYOUT_STATUSES).default("REQUESTED") }) }),
+  validate({ query: pagination.extend({ status: z.enum(PAYOUT_STATUSES).default("REQUESTED"), source: z.enum(PAYOUT_SOURCES).optional() }) }),
   asyncHandler(async (req, res) => {
-    const { status, page, limit } = req.validated.query as { status: (typeof PAYOUT_STATUSES)[number]; page: number; limit: number };
-    const filter = { status };
-    const [rows, total, counts] = await Promise.all([
+    const { status, source, page, limit } = req.validated.query as { status: (typeof PAYOUT_STATUSES)[number]; source?: PayoutSource; page: number; limit: number };
+    const filter: Record<string, unknown> = { status, ...(source ? sourceFilter(source) : {}) };
+    const [rows, total, counts, requestedByVendors, released] = await Promise.all([
       // Oldest first for the pending queue (first come, first paid), newest first for the history tabs.
       Payout.find(filter)
         .sort({ requestedAt: status === "REQUESTED" ? 1 : -1 })
@@ -37,8 +73,53 @@ adminPayoutsRouter.get(
         .limit(limit),
       Payout.countDocuments(filter),
       Promise.all(PAYOUT_STATUSES.map(async (s) => [s, await Payout.countDocuments({ status: s })] as const)),
+      Payout.countDocuments({ status: "REQUESTED", ...sourceFilter("VENDOR_REQUEST") }),
+      Payout.countDocuments({ status: "REQUESTED", ...sourceFilter("ADMIN_RELEASE") }),
     ]);
-    ok(res, { counts: Object.fromEntries(counts), payouts: await listRows(rows) }, { page, limit, total });
+    ok(res, { counts: { ...Object.fromEntries(counts), requestedByVendors, released }, payouts: await listRows(rows) }, { page, limit, total });
+  }),
+);
+
+/**
+ * Earnings that are ready to be paid, vendor by vendor, with no one having to ask: the hold is over, no return is open and
+ * refunds are already taken off. Worked out from the delivery times each time it is opened. Releasing makes them a payout.
+ */
+adminPayoutsRouter.get(
+  "/due",
+  asyncHandler(async (_req, res) => {
+    const now = new Date();
+    const due = await dueByVendor(now);
+    const ids = due.map((d) => d.vendorId);
+    const [vendors, balances] = await Promise.all([Vendor.find({ _id: { $in: ids } }).select("businessName status bank"), vendorBalances(ids, now)]);
+    const byId = new Map(vendors.map((v) => [String(v._id), v]));
+    const rows = due.flatMap((d) => {
+      const vendor = byId.get(String(d.vendorId));
+      if (!vendor) return [];
+      const blockedReason = releaseBlocker(vendor);
+      return [
+        {
+          vendor: { id: String(d.vendorId), businessName: vendor.businessName },
+          deliveries: d.deliveries,
+          dueKobo: d.netKobo,
+          oldestDeliveredAt: d.oldestDeliveredAt,
+          canRelease: !blockedReason,
+          blockedReason,
+          balance: balances.get(String(d.vendorId))!,
+        },
+      ];
+    });
+    ok(res, { rows, totalKobo: rows.reduce((n, r) => n + r.dueKobo, 0), releasableKobo: rows.filter((r) => r.canRelease).reduce((n, r) => n + r.dueKobo, 0) });
+  }),
+);
+
+/** Release the ready earnings of the chosen vendors (or of everyone with something due). Each becomes a payout to pay. */
+adminPayoutsRouter.post(
+  "/release",
+  validate({ body: z.object({ vendorIds: z.array(objectId).min(1).max(500).optional() }).strict() }),
+  asyncHandler(async (req, res) => {
+    const result = await releaseDuePayouts(req.user!, req.validated.body.vendorIds ?? null);
+    console.info(`Admin ${req.user!._id} released ${result.released.length} payouts (${result.skipped.length} skipped)`);
+    ok(res, result);
   }),
 );
 
@@ -72,6 +153,7 @@ async function exportRows(query: z.infer<typeof exportQuery>) {
     amountKobo: p.amountKobo,
     requestedAt: p.requestedAt,
     status: p.status,
+    paidAt: presentPayout(p).paidAt, // when it was paid, for a paid payout; an older one falls back on when it was decided
   }));
 }
 
@@ -105,10 +187,19 @@ adminPayoutsRouter.get(
   asyncHandler(async (req, res) => {
     const payout = await Payout.findById(req.validated.params.id);
     if (!payout) throw AppError.notFound("Payout not found");
-    const [vendor, subs] = await Promise.all([Vendor.findById(payout.vendorId), SubOrder.find({ _id: { $in: payout.subOrderIds } }).sort({ deliveredAt: -1 })]);
+    const [vendor, subs, decider, balances] = await Promise.all([
+      Vendor.findById(payout.vendorId),
+      SubOrder.find({ _id: { $in: payout.subOrderIds } }).sort({ deliveredAt: -1 }),
+      payout.resolvedBy ? User.findById(payout.resolvedBy).select("name") : Promise.resolve(null),
+      vendorBalances([payout.vendorId], new Date()),
+    ]);
     ok(res, {
       ...presentPayout(payout),
+      // The vendor's whole position now, so a payout is never approved without seeing what else is owed or already in payouts.
+      balance: balances.get(String(payout.vendorId)) ?? null,
       vendor: { id: String(payout.vendorId), businessName: vendor?.businessName ?? "Vendor" },
+      // Who paid it (or declined it), for the admin's own record. Not shown to the vendor.
+      resolvedBy: decider ? { id: String(decider._id), name: decider.name } : null,
       // The admin needs the full account number to make the transfer. This is the only place it is returned.
       bank: { bankName: payout.bank!.bankName, accountNumber: payout.bank!.accountNumber, accountName: payout.bank!.accountName },
       orders: subs.map((s) => ({ id: String(s._id), ref: s.ref, deliveredAt: s.deliveredAt ?? null, earnKobo: netEarningKobo(s.vendorEarningKobo, s.returnedEarningKobo) })),

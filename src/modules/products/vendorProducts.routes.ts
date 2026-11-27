@@ -78,7 +78,7 @@ vendorProductsRouter.get(
   "/",
   validate({ query: vendorListQuery }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     const { page, limit, q } = req.validated.query;
     const filter: Record<string, unknown> = { vendorId: vendor._id };
     if (q) filter.name = new RegExp(escapeRegex(q), "i");
@@ -98,7 +98,7 @@ vendorProductsRouter.post(
   "/",
   validate({ body: createProductSchema }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     assertCanWrite(vendor);
     const input = req.validated.body;
     assertOwnImages(vendor, input.images);
@@ -119,7 +119,7 @@ vendorProductsRouter.get(
   "/:id",
   validate({ params: idParams }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     ok(res, present(await ownProduct(vendor, req.validated.params.id), (await getPricing()).commissionBps));
   }),
 );
@@ -128,7 +128,7 @@ vendorProductsRouter.patch(
   "/:id",
   validate({ params: idParams, body: updateProductSchema }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     assertCanWrite(vendor);
     const product = await ownProduct(vendor, req.validated.params.id);
     const input = req.validated.body;
@@ -152,7 +152,7 @@ vendorProductsRouter.delete(
   "/:id",
   validate({ params: idParams }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     assertCanWrite(vendor);
     const product = await ownProduct(vendor, req.validated.params.id);
     // Orders keep their own snapshot of name and price (Phase 4), so deleting the product is safe.

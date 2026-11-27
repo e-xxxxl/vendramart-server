@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { csvCell, isCalendarDay, lagosDay, lagosRange, nairaText, payoutCsv, PAYOUT_EXPORT_HEADER } from "../src/domain/payoutExport.js";
+import { csvCell, isCalendarDay, lagosDay, lagosRange, lagosStamp, nairaText, payoutCsv, PAYOUT_EXPORT_HEADER } from "../src/domain/payoutExport.js";
 import type { Types } from "mongoose";
 import { Payout } from "../src/models/Payout.js";
 import { api, clearDb, createCustomer, createVendor, seedReferenceData, startDb, stopDb } from "./helpers.js";
@@ -52,8 +52,16 @@ describe("the bank file rules", () => {
     const lines = csv.replace("﻿", "").split("\r\n");
     expect(csv.startsWith("﻿")).toBe(true);
     expect(lines[0]).toBe(PAYOUT_EXPORT_HEADER.join(","));
-    expect(lines[1]).toBe("PR-2291,Bodija Foods,GTBank,0123456789,Bodija Foods Ltd,43740.00,VendraMart PR-2291,2026-11-09,REQUESTED");
+    expect(lines[1]).toBe("PR-2291,Bodija Foods,GTBank,0123456789,Bodija Foods Ltd,43740.00,VendraMart PR-2291,2026-11-09,REQUESTED,"); // not paid: the last column is empty
     expect(lines[2]).toBe("");
+  });
+
+  it("writes when a paid payout was paid, as the Lagos date and time", () => {
+    expect(PAYOUT_EXPORT_HEADER.at(-1)).toBe("Paid on");
+    expect(lagosStamp(new Date("2026-11-26T13:30:00Z"))).toBe("2026-11-26 14:30");
+    expect(lagosStamp(new Date("2026-11-26T23:30:00Z"))).toBe("2026-11-27 00:30"); // past midnight in Lagos is the next day
+    const csv = payoutCsv([{ number: "PR-2292", vendor: "Bodija Foods", bankName: "GTBank", accountNumber: "0123456789", accountName: "Bodija Foods Ltd", amountKobo: 100_000, requestedAt: new Date("2026-11-25T09:00:00Z"), status: "PAID", paidAt: new Date("2026-11-26T13:30:00Z") }]);
+    expect(csv.replace("﻿", "").split("\r\n")[1]).toBe("PR-2292,Bodija Foods,GTBank,0123456789,Bodija Foods Ltd,1000.00,VendraMart PR-2292,2026-11-25,PAID,2026-11-26 14:30");
   });
 });
 

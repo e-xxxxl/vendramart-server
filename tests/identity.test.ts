@@ -72,12 +72,14 @@ describe("registering with a NIN", () => {
     expect(JSON.stringify(profile)).not.toContain(NIN);
   });
 
-  it("refuses a NIN that already belongs to another store, and creates no account", async () => {
+  it("lets one NIN back three stores, then refuses a fourth and creates no account", async () => {
     await registered();
-    const { res } = await register({ email: "second@example.com", businessName: "Second Store" });
+    expect((await register({ email: "second@example.com", businessName: "Second Store" })).res.status).toBe(201);
+    expect((await register({ email: "third@example.com", businessName: "Third Store" })).res.status).toBe(201);
+    const { res } = await register({ email: "fourth@example.com", businessName: "Fourth Store" });
     expect(res.status).toBe(409);
-    expect(res.body.error.message).toMatch(/already linked to another store/);
-    expect(await User.exists({ email: "second@example.com" })).toBeNull();
+    expect(res.body.error.message).toMatch(/already used for 3 stores/);
+    expect(await User.exists({ email: "fourth@example.com" })).toBeNull();
   });
 
   it("never appears on the public storefront or in the registration reply", async () => {
@@ -201,8 +203,10 @@ describe("changing identity details later", () => {
     expect((await upload(bearer, pngBytes())).status).toBe(200);
   });
 
-  it("will not take a NIN that another store has, or one that is not 11 digits", async () => {
+  it("will not take a NIN that three other stores have, or one that is not 11 digits", async () => {
     await registered();
+    await register({ email: "second@example.com", businessName: "Second Store" });
+    await register({ email: "third@example.com", businessName: "Third Store" });
     const v = await createVendor({ email: "old@example.com" });
     const bearer = await loginToken(v.email);
     expect((await asUser(bearer).patch("/vendor/identity", { nin: NIN })).status).toBe(409);

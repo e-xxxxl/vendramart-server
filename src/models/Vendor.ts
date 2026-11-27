@@ -5,7 +5,8 @@ export type VendorStatus = (typeof VENDOR_STATUSES)[number];
 
 const vendorSchema = new Schema(
   {
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, unique: true },
+    // One sign-in can own up to 3 stores (the limit is enforced in vendor.service.ts), so this is not unique.
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     businessName: { type: String, required: true, trim: true, maxlength: 120 },
     slug: { type: String, required: true, unique: true, lowercase: true },
     ownerName: { type: String, required: true, trim: true, maxlength: 120 },
@@ -13,8 +14,8 @@ const vendorSchema = new Schema(
     email: { type: String, required: true, lowercase: true, trim: true },
     cacNumber: { type: String, trim: true, maxlength: 30 },
     // National Identification Number (11 digits) and a copy of the NIN slip. Private: admins only, never shown to shoppers.
-    // Unique when present, so one person cannot open several stores on the same identity.
-    nin: { type: String, trim: true, unique: true, sparse: true },
+    // One NIN can back up to 3 stores (enforced in vendor.service.ts), so this is not unique.
+    nin: { type: String, trim: true, index: true, sparse: true },
     ninSlip: {
       publicId: { type: String },
       mime: { type: String },

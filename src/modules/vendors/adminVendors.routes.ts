@@ -11,7 +11,7 @@ import { User } from "../../models/User.js";
 import { Vendor, VENDOR_STATUSES, type VendorDoc } from "../../models/Vendor.js";
 import { adminCreateVendorSchema, suspendSchema } from "./vendor.schemas.js";
 import { sendAccountInviteEmail } from "../auth/emailTokens.service.js";
-import { registerVendor } from "./vendor.service.js";
+import { addStore, registerVendor } from "./vendor.service.js";
 import { notifyVendorDecision } from "../accounts/accountEvents.js";
 import { sendNinSlip } from "./identity.service.js";
 
@@ -67,6 +67,13 @@ adminVendorsRouter.post(
   "/",
   validate({ body: adminCreateVendorSchema }),
   asyncHandler(async (req, res) => {
+    // An owner who already has a store sign-in gets another store on it (up to 3), not a second account.
+    const existing = await User.findOne({ email: req.validated.body.email });
+    if (existing) {
+      if (existing.role !== "VENDOR") throw AppError.conflict("An account with this email already exists and is not a store account.");
+      const store = await addStore(existing, req.validated.body);
+      return void created(res, present(store));
+    }
     // Never shown or sent: only here because an account needs one. The owner replaces it from the emailed link.
     const password = `${randomBytes(18).toString("base64url")}a1`;
     const { user, vendor } = await registerVendor({ ...req.validated.body, password });

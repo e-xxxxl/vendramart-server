@@ -3,6 +3,9 @@ import { PAYOUT_STATUSES } from "../domain/payoutStateMachine.js";
 
 const isInt = { validator: Number.isInteger, message: "{PATH} must be a whole number" };
 
+export const PAYOUT_SOURCES = ["VENDOR_REQUEST", "ADMIN_RELEASE"] as const;
+export type PayoutSource = (typeof PAYOUT_SOURCES)[number];
+
 // One vendor withdrawal. Requesting it locks the included sub-orders (SubOrder.payoutId). The admin pays it
 // manually and uploads the transfer receipt, or declines it with a reason, which releases the orders again.
 const payoutSchema = new Schema(
@@ -20,9 +23,15 @@ const payoutSchema = new Schema(
       accountName: { type: String, required: true },
     },
     status: { type: String, enum: PAYOUT_STATUSES, default: "REQUESTED", index: true },
+    // Who started it: the vendor asked for it, or the admin released the earnings that were ready. A payout from before this
+    // existed has no source and was asked for by the vendor.
+    source: { type: String, enum: PAYOUT_SOURCES, default: "VENDOR_REQUEST" },
     requestedAt: { type: Date, default: Date.now },
+    // When the admin decided it (paid or declined), and who. For a paid payout `paidAt` is the same moment: the date and time
+    // the transfer was recorded as done. A payout paid before `paidAt` existed has only `resolvedAt`, which presentPayout falls back on.
     resolvedAt: Date,
     resolvedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    paidAt: Date,
     // Private: opened only through GET /api/payouts/:id/receipt by the owning vendor or an admin.
     receipt: {
       publicId: String,
@@ -47,8 +56,12 @@ export const presentPayout = (p: PayoutDoc) => ({
   amountKobo: p.amountKobo,
   orderCount: p.subOrderIds.length,
   status: p.status,
+  // VENDOR_REQUEST: the vendor asked for it. ADMIN_RELEASE: the admin released earnings that were ready.
+  source: (p.source ?? "VENDOR_REQUEST") as PayoutSource,
   requestedAt: p.requestedAt,
   resolvedAt: p.resolvedAt ?? null,
+  // The date and time the payout was paid. Only for a paid payout; an older one falls back on when it was decided.
+  paidAt: p.status === "PAID" ? (p.paidAt ?? p.resolvedAt ?? null) : null,
   declineReason: p.declineReason ?? null,
   receiptUrl: p.status === "PAID" && p.receipt?.publicId ? `/api/payouts/${p._id}/receipt` : null,
 });

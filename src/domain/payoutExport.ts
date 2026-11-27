@@ -53,15 +53,20 @@ export interface PayoutExportRow {
   amountKobo: number;
   requestedAt: Date;
   status: string;
+  /** When it was paid, for a paid payout. */
+  paidAt?: Date | null;
 }
 
-export const PAYOUT_EXPORT_HEADER = ["Payout number", "Vendor", "Bank name", "Account number", "Account name", "Amount (NGN)", "Narration", "Requested on", "Status"];
+export const PAYOUT_EXPORT_HEADER = ["Payout number", "Vendor", "Bank name", "Account number", "Account name", "Amount (NGN)", "Narration", "Requested on", "Status", "Paid on"];
+
+/** "2026-11-26 14:30": a moment as the Lagos date and time, for a column in the file. */
+export const lagosStamp = (d: Date) => new Date(d.getTime() + LAGOS_OFFSET_MS).toISOString().slice(0, 16).replace("T", " ");
 
 /** The file as text, with a byte order mark so Excel reads it as UTF-8, and Windows line endings. */
 export function payoutCsv(rows: PayoutExportRow[]): string {
   const lines = [PAYOUT_EXPORT_HEADER.map(csvCell).join(",")];
   for (const r of rows) {
-    lines.push([r.number, r.vendor, r.bankName, r.accountNumber, r.accountName, nairaText(r.amountKobo), `VendraMart ${r.number}`, lagosDay(r.requestedAt), r.status].map(csvCell).join(","));
+    lines.push([r.number, r.vendor, r.bankName, r.accountNumber, r.accountName, nairaText(r.amountKobo), `VendraMart ${r.number}`, lagosDay(r.requestedAt), r.status, r.paidAt ? lagosStamp(r.paidAt) : ""].map(csvCell).join(","));
   }
   return `﻿${lines.join("\r\n")}\r\n`;
 }

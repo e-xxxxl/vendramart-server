@@ -45,6 +45,20 @@ export const registerVendorSchema = z.object({
   nin: nin.optional(),
 });
 
+/** An owner who is already signed in opens another store: their own details are already on file, so only the store is asked for. */
+export const addStoreSchema = z
+  .object({
+    businessName: text(2, 120, "Enter your business name"),
+    description: z.string().trim().max(600).optional(),
+    cacNumber: registerVendorSchema.shape.cacNumber,
+    phone: phone.optional(),
+    pickup,
+    bank,
+    // Left out, it is the NIN of their first store.
+    nin: nin.optional(),
+  })
+  .strict();
+
 /** The admin creates a store for someone: the same details, but no password. The owner chooses theirs from an emailed link. */
 export const adminCreateVendorSchema = registerVendorSchema.omit({ password: true }).strict();
 
@@ -70,3 +84,4 @@ export const updatePickupSchema = pickup;
 export const suspendSchema = z.object({ reason: text(3, 300, "Give a short reason") });
 
 export type RegisterVendorInput = z.infer<typeof registerVendorSchema>;
+export type AddStoreInput = z.infer<typeof addStoreSchema>;

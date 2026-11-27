@@ -58,7 +58,7 @@ vendorOrdersRouter.get(
   "/",
   validate({ query: pagination.extend({ group: z.enum(["todo", "active", "done", "problem"]).default("todo") }) }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     const { group, page, limit } = req.validated.query as { group: Group; page: number; limit: number };
     const filter = { vendorId: vendor._id, status: { $in: [...VENDOR_GROUPS[group]] } };
 
@@ -81,7 +81,7 @@ vendorOrdersRouter.post(
   "/:id/ready",
   validate({ params: z.object({ id: objectId }) }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     if (vendor.status === "SUSPENDED") throw AppError.forbidden("Your store is suspended. Contact support.");
     // Another vendor's order looks exactly like a missing one.
     const sub = await SubOrder.findOne({ _id: req.validated.params.id, vendorId: vendor._id, status: { $in: ALL_VISIBLE } });

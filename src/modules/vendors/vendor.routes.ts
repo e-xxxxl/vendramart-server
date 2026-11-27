@@ -4,12 +4,13 @@ import { calculateLineEarnings } from "../../domain/commission.js";
 import { requireRole } from "../../middleware/auth.js";
 import { validate } from "../../middleware/validate.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
-import { ok } from "../../utils/respond.js";
+import { created, ok } from "../../utils/respond.js";
 import { Product } from "../../models/Product.js";
 import { getPricing } from "../../models/Settings.js";
-import { ownVendor } from "../../models/Vendor.js";
-import { getVendorForUser, updatePickup } from "./vendor.service.js";
-import { updateBankSchema, updateNinSchema, updatePickupSchema, updateProfileSchema } from "./vendor.schemas.js";
+import { ownVendor, type VendorDoc } from "../../models/Vendor.js";
+import { addStore, getVendorForUser, MAX_STORES, storesOf, updatePickup } from "./vendor.service.js";
+import { addStoreSchema, updateBankSchema, updateNinSchema, updatePickupSchema, updateProfileSchema } from "./vendor.schemas.js";
+import { notifyVendorApplied } from "../accounts/accountEvents.js";
 import { saveNinSlip, sendNinSlip, setNin } from "./identity.service.js";
 import { singleFile } from "../../middleware/upload.js";
 import { AppError } from "../../utils/AppError.js";
@@ -38,10 +39,32 @@ vendorRouter.get(
   }),
 );
 
+// One sign-in can run up to MAX_STORES stores. This lists them (oldest first), so the website can offer a switch between them.
+const storeRow = (v: VendorDoc) => ({ id: String(v._id), slug: v.slug, businessName: v.businessName, status: v.status, logo: v.logo ?? null });
+
+vendorRouter.get(
+  "/stores",
+  asyncHandler(async (req, res) => {
+    const stores = await storesOf(req.user!._id);
+    ok(res, { max: MAX_STORES, canAdd: stores.length < MAX_STORES, stores: stores.map(storeRow) });
+  }),
+);
+
+// Opens another store on the same sign-in. It waits for approval like any new store.
+vendorRouter.post(
+  "/stores",
+  validate({ body: addStoreSchema }),
+  asyncHandler(async (req, res) => {
+    const store = await addStore(req.user!, req.validated.body);
+    void notifyVendorApplied(req.user!, store);
+    created(res, storeRow(store));
+  }),
+);
+
 vendorRouter.get(
   "/overview",
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     const [toPrepare, products, activeProducts, outOfStock] = await Promise.all([
       SubOrder.countDocuments({ vendorId: vendor._id, status: { $in: [...VENDOR_GROUPS.todo] } }),
       Product.countDocuments({ vendorId: vendor._id }),
@@ -54,14 +77,14 @@ vendorRouter.get(
 
 vendorRouter.get(
   "/profile",
-  asyncHandler(async (req, res) => ok(res, ownVendor(await getVendorForUser(req.user!._id)))),
+  asyncHandler(async (req, res) => ok(res, ownVendor(await getVendorForUser(req)))),
 );
 
 vendorRouter.patch(
   "/profile",
   validate({ body: updateProfileSchema }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     // The logo is changed only by uploading one (POST /vendor/uploads/logo), so it is always a file in our Cloudinary folder.
     Object.assign(vendor, req.validated.body);
     await vendor.save();
@@ -73,7 +96,7 @@ vendorRouter.patch(
   "/bank",
   validate({ body: updateBankSchema }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     vendor.bank = req.validated.body;
     await vendor.save();
     ok(res, ownVendor(vendor));
@@ -84,7 +107,7 @@ vendorRouter.patch(
   "/pickup",
   validate({ body: updatePickupSchema }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     ok(res, ownVendor(await updatePickup(vendor, req.validated.body)));
   }),
 );
@@ -93,7 +116,7 @@ vendorRouter.patch(
   "/identity",
   validate({ body: updateNinSchema }),
   asyncHandler(async (req, res) => {
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     ok(res, ownVendor(await setNin(vendor, req.validated.body.nin)));
   }),
 );
@@ -103,7 +126,7 @@ vendorRouter.post(
   singleFile,
   asyncHandler(async (req, res) => {
     if (!req.file) throw AppError.validation("Choose the NIN slip to upload", [{ path: "file", message: "Choose the NIN slip to upload" }]);
-    const vendor = await getVendorForUser(req.user!._id);
+    const vendor = await getVendorForUser(req);
     ok(res, ownVendor(await saveNinSlip(vendor, req.file.buffer)));
   }),
 );
@@ -111,7 +134,7 @@ vendorRouter.post(
 vendorRouter.get(
   "/identity/slip",
   asyncHandler(async (req, res) => {
-    await sendNinSlip(res, await getVendorForUser(req.user!._id));
+    await sendNinSlip(res, await getVendorForUser(req));
   }),
 );
 

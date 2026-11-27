@@ -22,15 +22,44 @@ export async function declinedPayoutIds(vendorId: Types.ObjectId): Promise<Types
  * `earningState(...) === "AVAILABLE"` (a test keeps the two identical), and it looks only at timestamps and the
  * payout link: no job has to have run.
  */
-export function availableFilter(vendorId: Types.ObjectId, now: Date, declined: Types.ObjectId[]) {
+export function availableFilter(vendorId: Types.ObjectId | null, now: Date, declined: Types.ObjectId[]) {
   return {
-    vendorId,
+    // One vendor's, or (with null) every vendor's: what is ready to be paid out across the platform.
+    ...(vendorId ? { vendorId } : {}),
     status: { $in: DELIVERED_STATUSES },
     deliveredAt: { $lte: unlockedBefore(now) },
     // An open return keeps the money back until the case is settled.
     returnHold: { $ne: true },
     $or: [{ payoutId: null }, { payoutId: { $in: declined } }],
   };
+}
+
+/** What is ready to be paid out to one vendor right now. */
+export interface DueEarnings {
+  vendorId: Types.ObjectId;
+  /** Deliveries with something to pay out. */
+  deliveries: number;
+  /** After refunds took their share off. */
+  netKobo: number;
+  /** The delivery that has waited longest. */
+  oldestDeliveredAt: Date;
+}
+
+/**
+ * Every vendor's earnings that are ready to be paid out, worked out from timestamps alone, the instant the hold ends: the same
+ * test as `availableFilter`, so it is exactly what the vendor could ask for. An open return keeps a delivery out, a refund takes
+ * its share off, and a delivery already in a payout (requested or released) is not here, so nothing can be paid twice.
+ */
+export async function dueByVendor(now = new Date()): Promise<DueEarnings[]> {
+  const declined = (await Payout.find({ status: "DECLINED" }).select("_id")).map((p) => p._id);
+  const rows = await SubOrder.aggregate<{ _id: Types.ObjectId; deliveries: number; netKobo: number; oldestDeliveredAt: Date }>([
+    { $match: availableFilter(null, now, declined) },
+    { $project: { vendorId: 1, deliveredAt: 1, net: { $max: [0, { $subtract: ["$vendorEarningKobo", { $ifNull: ["$returnedEarningKobo", 0] }] }] } } },
+    { $match: { net: { $gt: 0 } } },
+    { $group: { _id: "$vendorId", deliveries: { $sum: 1 }, netKobo: { $sum: "$net" }, oldestDeliveredAt: { $min: "$deliveredAt" } } },
+    { $sort: { oldestDeliveredAt: 1 } },
+  ]);
+  return rows.map((r) => ({ vendorId: r._id, deliveries: r.deliveries, netKobo: r.netKobo, oldestDeliveredAt: r.oldestDeliveredAt }));
 }
 
 export interface EarningRow {
